@@ -34,7 +34,7 @@ Each seat SHALL have a personal invite token that the owner or any admin can sha
 - **THEN** access is denied and no seat changes
 
 ### Requirement: Generic link creates pending claims
-Opening the trip's generic link SHALL show only first names of unlinked seats. Choosing a seat SHALL create a pending claim, and the pending principal SHALL see no trip data until the owner, an admin or the seat's creator approves it. "No estoy en la lista" SHALL create a new pending seat.
+An owner or admin SHALL be able to create the trip's generic link, shown as a QR and shareable by WhatsApp, and rotate it (the old link stops working; people already in are unaffected). Opening it SHALL show only first names of unlinked seats. Choosing a seat SHALL create a pending claim, and the pending principal SHALL see no trip data until the owner, an admin or the seat's creator approves it. "No estoy en la lista" SHALL create a new pending seat.
 
 #### Scenario: Claim awaits approval
 - **WHEN** a visitor picks "Leo" from the generic link
@@ -105,3 +105,21 @@ A guest SHALL be able to attach an email to their principal after proving they o
 #### Scenario: Email already has an account
 - **WHEN** a guest enters an email that already belongs to an account
 - **THEN** nothing is linked and they are told to sign in with that email instead
+
+### Requirement: Re-send a personal link (new phone)
+An owner or admin SHALL be able to re-send a personal link for a seat someone already uses. Until the new link is opened, the current phone SHALL keep access. Opening it SHALL move the seat to the opener and revoke the previous principal's access. Each personal link SHALL work once, and re-sending SHALL invalidate the previous link.
+
+#### Scenario: Juli changed phones
+- **WHEN** Mateo re-sends Juli's link and Juli opens it on her new phone
+- **THEN** her seat (with all its expenses and payments) moves to the new phone and the old one loses access
+
+#### Scenario: Old link forwarded
+- **WHEN** someone opens Juli's original link after she used it
+- **THEN** it shows that the seat is already in use and changes nothing
+
+### Requirement: Only the server links seats
+Members SHALL NOT be able to create trips, claim, invite or approve seats by calling the database directly; these go through the application, which enforces the rules above.
+
+#### Scenario: Direct RPC call
+- **WHEN** an authenticated member calls `claim_seat_with_invite` with the publishable key
+- **THEN** it is rejected with a permission error

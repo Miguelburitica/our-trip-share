@@ -1,8 +1,14 @@
 import Link from "next/link";
+import QRCode from "qrcode";
+import { requestOrigin } from "@/app/ui/origin";
 import { backend } from "@/composition/server";
 import { loadTrip } from "../data";
 import { signOutAction } from "../actions";
+import { ClaimRequests } from "./claim-requests";
 import { InviteButton } from "./invite-button";
+import { JoinLinkCard } from "./join-link-card";
+
+const when = new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: "America/Bogota" });
 
 const ROLE = { owner: "Organizador", admin: "Admin", member: "" } as const;
 
@@ -18,8 +24,15 @@ export default async function Viaje({
   const { trip, isGuest } = await loadTrip(raw);
   const me = trip.seats.find((s) => s.id === trip.mySeatId);
   const canInvite = me?.role === "owner" || me?.role === "admin";
-  const waiting = trip.seats.filter((s) => !s.linked).length;
+  const waiting = trip.seats.filter((s) => !s.linked && !s.pendingClaim).length;
   const real = backend() === "supabase";
+  const requests = trip.seats
+    .filter((s) => s.pendingClaim && (canInvite || s.createdBy === trip.mySeatId))
+    .map((s) => ({ seatId: s.id as string, name: s.displayName, isNew: s.createdBy === null, since: when.format(new Date(s.pendingSince!)) }));
+  const joinUrl = real && trip.joinToken ? `${await requestOrigin()}/u/${trip.id}/${trip.joinToken}` : null;
+  const qrSvg = joinUrl
+    ? await QRCode.toString(joinUrl, { type: "svg", margin: 1, color: { dark: "#2B2420", light: "#00000000" } })
+    : null;
 
   return (
     <main className="flex flex-col gap-7 px-5 pt-14 pb-36">
@@ -35,7 +48,7 @@ export default async function Viaje({
         <section className="flex flex-col gap-1 rounded-[28px] bg-tint px-5 py-5">
           <p className="text-[17px] font-semibold">Listo. Ahora invita a cada uno</p>
           <p className="text-[15px] text-ink-2">
-            Envía a cada persona su enlace por WhatsApp. Lo abren y entran, sin crear cuenta.
+            Envía a cada persona su enlace por WhatsApp, o comparte el enlace del viaje en el grupo. Entran sin crear cuenta.
           </p>
         </section>
       )}
@@ -50,10 +63,14 @@ export default async function Viaje({
         </Link>
       )}
 
+      {real && requests.length > 0 && <ClaimRequests tripId={trip.id} requests={requests} />}
+
+      {real && <JoinLinkCard tripId={trip.id} tripName={trip.name} url={joinUrl} qrSvg={qrSvg} canManage={canInvite} />}
+
       <section aria-label="Personas" className="flex flex-col gap-2.5">
         <h2 className="px-1 text-[15px] font-semibold">Personas · {trip.seats.length}</h2>
         <ul className="rounded-3xl bg-surface px-4.5 py-1 shadow-card">
-          {trip.seats.map((s) => (
+          {trip.seats.filter((s) => s.linked || !s.pendingClaim || s.createdBy !== null).map((s) => (
             <li key={s.id} className="flex min-h-[58px] items-center gap-3">
               <span
                 className={`flex size-9 flex-none items-center justify-center rounded-full text-[13px] font-semibold ${
@@ -68,10 +85,12 @@ export default async function Viaje({
                   {s.id === trip.mySeatId && " (tú)"}
                 </span>
                 <span className="text-[13px] text-muted">
-                  {[ROLE[s.role], s.linked ? (s.linkKind === "guest" ? "Invitado" : "") : "Aún no entra"].filter(Boolean).join(" · ")}
+                  {[ROLE[s.role], s.linked ? (s.linkKind === "guest" ? "Invitado" : "") : s.pendingClaim ? "Pidió entrar" : "Aún no entra"].filter(Boolean).join(" · ")}
                 </span>
               </span>
-              {real && canInvite && !s.linked && <InviteButton tripId={trip.id} seatId={s.id} />}
+              {real && canInvite && s.role !== "owner" && s.id !== trip.mySeatId && (
+                <InviteButton tripId={trip.id} seatId={s.id} recover={s.linked} />
+              )}
             </li>
           ))}
         </ul>

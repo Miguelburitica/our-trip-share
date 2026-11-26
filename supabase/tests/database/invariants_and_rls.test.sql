@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(19);
+select plan(21);
 
 -- Principals: Mateo (account), Juli (guest), a stranger.
 insert into auth.users (id, aud, role, email, is_anonymous) values
@@ -16,29 +16,41 @@ $$;
 set local role authenticated;
 
 -- ---------- trip membership ----------
+-- Seats are linked by the app server (decision 8); members can't call the linking RPCs themselves.
 select pg_temp.act_as('00000000-0000-0000-0000-0000000000a1');
+select throws_ok($$ select public.create_trip('X', 'COP', 'Mateo', array[]::text[]) $$,
+  '42501', null, 'members cannot create trips directly');
+reset role;
 select lives_ok($$ select public.create_trip('Cartagena', 'COP', 'Mateo', array['Ana', 'Juli', ' ana ']) $$,
-  'Mateo creates Cartagena');
+  'the server creates Cartagena for Mateo');
+select lives_ok($$
+  select public.issue_seat_invite(
+    (select id from public.seats where display_name = 'Juli'
+        and trip_id = (select trip_id from public.seats where principal_id = '00000000-0000-0000-0000-0000000000a1')),
+    encode(extensions.digest('tok-juli', 'sha256'), 'hex'))
+$$, 'the server issues a personal invite for Juli');
+set local role authenticated;
 select is((select count(*)::int from public.seats), 3, 'duplicate names are skipped: Mateo, Ana, Juli');
 select is((select role::text from public.seats where display_name = 'Mateo'), 'owner', 'creator is owner');
-
-select lives_ok($$
-  select public.issue_seat_invite((select id from public.seats where display_name = 'Juli'),
-                                  encode(extensions.digest('tok-juli', 'sha256'), 'hex'))
-$$, 'owner issues a personal invite for Juli');
 
 -- Juli (guest) opens her personal link.
 select pg_temp.act_as('00000000-0000-0000-0000-0000000000a2', true);
 select is((select count(*)::int from public.trips), 0, 'before claiming, Juli sees no trip');
-select lives_ok($$ select * from public.claim_seat_with_invite('tok-juli') $$, 'Juli claims her seat');
+select throws_ok($$ select * from public.claim_seat_with_invite('tok-juli') $$, '42501', null,
+  'members cannot claim seats directly');
+reset role;
+select lives_ok($$ select * from public.claim_seat_with_invite('tok-juli') $$, 'the server links Juli to her seat');
+set local role authenticated;
 select is((select link_kind::text from public.seats where display_name = 'Juli'), 'guest', 'linked as guest');
 select throws_ok($$ update public.seats set principal_id = auth.uid() where display_name = 'Ana' $$,
   '42501', null, 'members cannot rewrite who holds a seat');
 
 -- The stranger reuses Juli's token and tries the generic link.
 select pg_temp.act_as('00000000-0000-0000-0000-0000000000a3');
+reset role;
 select throws_ok($$ select * from public.claim_seat_with_invite('tok-juli') $$,
   'P0001', null, 'a claimed personal link cannot be reused');
+set local role authenticated;
 select is((select count(*)::int from public.trip_unclaimed_first_names(
   (select trip_id from public.seats where id = (select seat_id from public.trip_unclaimed_first_names(
      (select id from public.trips limit 1)) limit 1)))), 0, 'stranger cannot even resolve trip ids it cannot see');

@@ -4,10 +4,12 @@ import { useState, useTransition } from "react";
 import { issueInviteAction } from "../actions";
 
 /**
+ * "Invitar" for a seat nobody uses yet; "Reenviar" for someone who changed phones (their seat moves
+ * to whoever opens the new link; until then the old phone keeps working).
  * Two taps on purpose: the first issues the link (a server round trip), the second opens
  * WhatsApp from a real link, which in-app browsers and popup blockers allow.
  */
-export function InviteButton({ tripId, seatId }: { tripId: string; seatId: string }) {
+export function InviteButton({ tripId, seatId, recover = false }: { tripId: string; seatId: string; recover?: boolean }) {
   const [invite, setInvite] = useState<{ url: string; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -21,14 +23,14 @@ export function InviteButton({ tripId, seatId }: { tripId: string; seatId: strin
           disabled={pending}
           onClick={() =>
             startTransition(async () => {
-              const r = await issueInviteAction(tripId, seatId);
+              const r = await issueInviteAction(tripId, seatId, recover);
               if (r.ok) setInvite(r);
               else setError(r.message);
             })
           }
           className="h-9 rounded-full bg-tint px-4 text-[14px] font-semibold disabled:opacity-50"
         >
-          {pending ? "…" : "Invitar"}
+          {pending ? "…" : recover ? "Reenviar" : "Invitar"}
         </button>
         {error && <span className="text-[12px] text-accent-text">{error}</span>}
       </span>

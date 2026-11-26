@@ -157,14 +157,46 @@ describe("Seats and claims", () => {
     expect(trip.seat(juli.id).link).toEqual({ kind: "guest", principalId: "p-juli" });
   });
 
-  it("revokes the previous token and link on re-issue", () => {
+  it("re-sending a link moves a seat to a new phone only when the new link is opened", () => {
     const trip = cartagena();
     const juli = seatNamed(trip, "Juli");
     trip.issueInvite(owner(trip), juli.id, "old");
     trip.claimWithInvite("old", { id: PrincipalId("p-juli"), kind: "guest" });
+    expect(trip.inviteState("old", PrincipalId("p-x"))).toBe("taken");
+    expect(code(() => trip.claimWithInvite("old", { id: PrincipalId("p-x"), kind: "guest" }))).toBe("already_claimed");
+
     trip.issueInvite(owner(trip), juli.id, "new");
-    expect(trip.seat(juli.id).isLinked).toBe(false);
+    // Juli keeps access on her old phone until the new link is used.
+    expect(trip.seat(juli.id).principalId).toBe("p-juli");
     expect(code(() => trip.claimWithInvite("old", { id: PrincipalId("p-x"), kind: "guest" }))).toBe("forbidden");
+    expect(trip.inviteState("new", null)).toBe("recover");
+
+    trip.claimWithInvite("new", { id: PrincipalId("p-juli-2"), kind: "guest" });
+    expect(trip.seat(juli.id).principalId).toBe("p-juli-2");
+    expect(code(() => trip.claimWithInvite("new", { id: PrincipalId("p-x"), kind: "guest" }))).toBe("already_claimed");
+  });
+
+  it("generic link: a visitor asks for a seat, sees nothing until approved, and can be rejected", () => {
+    const trip = cartagena();
+    const leo = seatNamed(trip, "Leo");
+    const visitor = { id: PrincipalId("p-visitor"), kind: "guest" as const };
+    expect(code(() => trip.requestClaimWithJoinLink("qr-token", leo.id, visitor, new Date()))).toBe("forbidden");
+    trip.issueJoinLink(owner(trip), "qr-token");
+    trip.requestClaimWithJoinLink("qr-token", leo.id, visitor, new Date());
+    expect(trip.seatOf(visitor.id)).toBeUndefined();
+    expect(trip.pendingSeatOf(visitor.id)?.id).toBe(leo.id);
+
+    // Changing their mind moves the request; a new name creates a pending seat.
+    trip.requestNewSeatWithJoinLink("qr-token", "Sofi", visitor, SeatId("seat-sofi"), new Date());
+    expect(trip.seat(leo.id).pendingClaim).toBeNull();
+    expect(trip.pendingSeatOf(visitor.id)?.displayName).toBe("Sofi");
+    expect(code(() => trip.requestNewSeatWithJoinLink("qr-token", "leo", visitor, SeatId("x"), new Date()))).toBe("validation");
+
+    trip.rejectClaim(owner(trip), SeatId("seat-sofi"));
+    expect(trip.allSeats.some((s) => s.id === "seat-sofi")).toBe(false);
+
+    trip.issueJoinLink(owner(trip), "qr-token-2");
+    expect(code(() => trip.requestClaimWithJoinLink("qr-token", leo.id, visitor, new Date()))).toBe("forbidden");
   });
 
   it("allows one seat per principal", () => {

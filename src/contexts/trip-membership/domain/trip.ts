@@ -20,6 +20,8 @@ export interface TripProps {
   status: TripStatus;
   settleMode: SettleMode;
   hubSeatId: SeatId | null;
+  /** The trip's generic join link token (QR); null until an admin creates one. Only lets people ask to join. */
+  joinToken: string | null;
   seats: SeatProps[];
   createdAt: Date;
 }
@@ -46,6 +48,8 @@ export interface ClosePreconditions {
 const normalizeName = (name: string) => name.trim().replace(/\s+/g, " ");
 const nameKey = (name: string) => normalizeName(name).toLocaleLowerCase("es");
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+/** A personal link becomes this once it's been used, so the same link can't move the seat again. */
+const USED = "used:";
 
 /**
  * Aggregate root of the trip-membership context. Owns its seats and every rule
@@ -108,6 +112,7 @@ export class Trip {
         status: "active",
         settleMode: "simplified",
         hubSeatId: null,
+        joinToken: null,
         createdAt: input.now,
       },
       seats,
@@ -116,7 +121,7 @@ export class Trip {
 
   static fromPrimitives(props: TripProps): Trip {
     const { seats, ...rest } = props;
-    return new Trip(rest, seats.map((s) => new Seat({ ...s })));
+    return new Trip({ ...rest, joinToken: rest.joinToken ?? null }, seats.map((s) => new Seat({ ...s })));
   }
 
   private static placeholder(id: SeatId, displayName: string, createdBy: SeatId | null): Seat {
@@ -155,6 +160,9 @@ export class Trip {
   }
   get startDate() {
     return this.props.startDate;
+  }
+  get joinToken() {
+    return this.props.joinToken;
   }
   get endDate() {
     return this.props.endDate;
@@ -215,29 +223,86 @@ export class Trip {
     this.seat(seatId)._update({ displayName: name });
   }
 
-  /** Issues (or re-issues) a personal invite. Re-issuing revokes the previous link. */
+  /**
+   * Issues (or re-issues) a personal invite; the previous link stops working. On a seat someone
+   * already uses, it's the recovery path (new phone): they keep access until the new link is opened.
+   */
   issueInvite(actorId: SeatId, seatId: SeatId, tokenHash: string) {
     this.requireAdmin(actorId);
     const seat = this.seat(seatId);
     if (seat.role === "owner") throw forbidden("No puedes reinvitar al organizador");
-    seat._update({ inviteTokenHash: tokenHash, link: { kind: "none" }, pendingClaim: null });
+    seat._update({ inviteTokenHash: tokenHash, pendingClaim: seat.isLinked ? seat.pendingClaim : null });
   }
 
-  /** The seat a personal link points to. Re-issuing a link invalidates the old one. */
-  seatForInvite(tokenHash: string): Seat {
-    const seat = this.seats.find((s) => s.inviteTokenHash !== null && s.inviteTokenHash === tokenHash);
+  /** The seat a personal link points to, and whether that link was already used. */
+  private inviteTarget(tokenHash: string): { seat: Seat; used: boolean } {
+    const seat = this.seats.find((s) => s.inviteTokenHash === tokenHash || s.inviteTokenHash === USED + tokenHash);
     if (!seat) throw forbidden("Este enlace ya no es válido");
+    return { seat, used: seat.inviteTokenHash !== tokenHash };
+  }
+
+  seatForInvite(tokenHash: string): Seat {
+    return this.inviteTarget(tokenHash).seat;
+  }
+
+  /** What opening a personal link would do for this viewer. */
+  inviteState(tokenHash: string, viewer: PrincipalId | null): "open" | "recover" | "mine" | "taken" | "member" {
+    const { seat, used } = this.inviteTarget(tokenHash);
+    if (viewer !== null && seat.principalId === viewer) return "mine";
+    if (viewer !== null && this.seats.some((s) => s.id !== seat.id && s.principalId === viewer)) return "member";
+    if (used) return "taken";
+    return seat.isLinked ? "recover" : "open";
+  }
+
+  /**
+   * Personal link: links the opener immediately. A fresh link on a seat that is already in use moves
+   * it to the opener (the admin re-sent it for a new phone). Each link works once.
+   */
+  claimWithInvite(tokenHash: string, principal: Principal): Seat {
+    const { seat, used } = this.inviteTarget(tokenHash);
+    if (seat.principalId === principal.id) return seat;
+    if (used) throw new DomainError("already_claimed", "Este lugar ya fue reclamado");
+    this.ensurePrincipalFree(principal.id, seat.id);
+    seat._update({ link: { kind: principal.kind, principalId: principal.id }, pendingClaim: null, inviteTokenHash: USED + tokenHash });
     return seat;
   }
 
-  /** Personal link: links the opener immediately. */
-  claimWithInvite(tokenHash: string, principal: Principal): Seat {
-    const seat = this.seatForInvite(tokenHash);
-    if (seat.principalId === principal.id) return seat;
-    if (seat.isLinked) throw new DomainError("already_claimed", "Este lugar ya fue reclamado");
-    this.ensurePrincipalFree(principal.id, seat.id);
-    seat._update({ link: { kind: principal.kind, principalId: principal.id }, pendingClaim: null });
-    return seat;
+  // ---------- generic join link (QR) ----------
+
+  /** Creates or rotates the trip's generic link; the previous QR stops working. */
+  issueJoinLink(actorId: SeatId, token: string) {
+    this.requireAdmin(actorId);
+    if (this.props.status === "closed") throw invalidState("El viaje está cerrado");
+    this.props.joinToken = token;
+  }
+
+  /** Throws unless this is the trip's current generic link (and the trip is open). */
+  assertJoinLink(token: string) {
+    if (!this.props.joinToken || this.props.joinToken !== token) throw forbidden("Este enlace ya no es válido");
+    if (this.props.status === "closed") throw invalidState("El viaje está cerrado");
+  }
+
+  /** The visitor's own pending request, if any. */
+  pendingSeatOf(principalId: PrincipalId): Seat | undefined {
+    return this.seats.find((s) => s.pendingClaim?.principalId === principalId);
+  }
+
+  /** Generic link, "Soy Leo": asks to be linked to an unclaimed seat. Picking again replaces the request. */
+  requestClaimWithJoinLink(token: string, seatId: SeatId, principal: Principal, now: Date) {
+    this.assertJoinLink(token);
+    this.pendingSeatOf(principal.id)?._update({ pendingClaim: null });
+    this.requestClaim(seatId, principal, now);
+  }
+
+  /** Generic link, "No estoy en la lista". */
+  requestNewSeatWithJoinLink(token: string, displayName: string, principal: Principal, newSeatId: SeatId, now: Date): Seat {
+    this.assertJoinLink(token);
+    const name = normalizeName(displayName);
+    if (this.seats.some((s) => nameKey(s.displayName) === nameKey(name))) {
+      throw validationError("Ya hay alguien con ese nombre; elígelo de la lista");
+    }
+    this.pendingSeatOf(principal.id)?._update({ pendingClaim: null });
+    return this.requestNewSeat(displayName, principal, newSeatId, now);
   }
 
   /**
@@ -290,7 +355,10 @@ export class Trip {
     const actor = this.requireActiveMember(actorId);
     const seat = this.seat(seatId);
     if (!actor.isAdmin && seat.createdBy !== actor.id) throw forbidden("No puedes rechazar esta solicitud");
+    if (!seat.pendingClaim) throw invalidState("No hay una solicitud pendiente");
     seat._update({ pendingClaim: null });
+    // A seat the visitor created with "No estoy en la lista" goes away with the request.
+    if (seat.createdBy === null && seat.role !== "owner" && !seat.isLinked) this.seats = this.seats.filter((x) => x !== seat);
   }
 
   /** Undo a claim: records stay on the seat, the principal loses access. */

@@ -22,7 +22,9 @@ export interface SeatDTO {
   linked: boolean;
   linkKind: "none" | "guest" | "user";
   pendingClaim: boolean;
+  pendingSince: string | null;
   defaultExcluded: boolean;
+  createdBy: SeatId | null;
 }
 
 export interface TripDTO {
@@ -34,6 +36,8 @@ export interface TripDTO {
   status: "active" | "settling" | "closed";
   settleMode: SettleMode;
   hubSeatId: SeatId | null;
+  /** The generic link token, for members to share (QR, group chat). */
+  joinToken: string | null;
   seats: SeatDTO[];
   /** The caller's own seat. */
   mySeatId: SeatId;
@@ -49,6 +53,7 @@ export function toTripDTO(trip: Trip, mySeatId: SeatId): TripDTO {
     status: trip.status,
     settleMode: trip.settleMode,
     hubSeatId: trip.hubSeatId,
+    joinToken: trip.joinToken,
     mySeatId,
     seats: trip.allSeats.map((s) => ({
       id: s.id,
@@ -58,6 +63,8 @@ export function toTripDTO(trip: Trip, mySeatId: SeatId): TripDTO {
       linked: s.isLinked,
       linkKind: s.link.kind,
       pendingClaim: s.pendingClaim !== null,
+      pendingSince: s.pendingClaim?.requestedAt.toISOString() ?? null,
+      createdBy: s.createdBy,
       defaultExcluded: s.defaultExcluded,
     })),
   };
@@ -69,8 +76,22 @@ export interface InvitePreviewDTO {
   seatName: string;
   organizer: string;
   people: number;
-  /** open: can claim · mine: already yours · taken: someone else has it · member: you have another seat here */
-  state: "open" | "mine" | "taken" | "member";
+  /**
+   * open: can claim · recover: re-sent for a new phone, opening it moves the seat here ·
+   * mine: already yours · taken: link already used by someone else · member: you have another seat here
+   */
+  state: "open" | "recover" | "mine" | "taken" | "member";
+}
+
+export interface JoinPreviewDTO {
+  tripId: TripId;
+  tripName: string;
+  organizer: string;
+  /** Unclaimed seats, first names only (PRODUCT_SPEC §6.1). `waiting`: someone else already asked for it. */
+  seats: Array<{ id: SeatId; firstName: string; waiting: boolean }>;
+  /** open: pick a seat · pending: you asked, waiting for approval · member: you're already in */
+  state: "open" | "pending" | "member";
+  pendingSeatName: string | null;
 }
 
 /** Application service for the trip-membership context. */
@@ -172,14 +193,13 @@ export class TripMembershipUseCases {
     return attempt(async () => {
       const trip = await this.load(tripId);
       const seat = trip.seatForInvite(this.deps.tokens.hash(token));
-      const mine = viewer !== null && seat.principalId === viewer;
       return {
         tripId: trip.id,
         tripName: trip.name,
         seatName: seat.displayName,
         organizer: trip.owner.displayName,
         people: trip.allSeats.filter((s) => s.isActive).length,
-        state: mine ? "mine" : seat.isLinked ? "taken" : viewer !== null && trip.seatOf(viewer) ? "member" : "open",
+        state: trip.inviteState(this.deps.tokens.hash(token), viewer),
       };
     });
   }
@@ -196,6 +216,62 @@ export class TripMembershipUseCases {
   requestClaim(tripId: TripId, seatId: SeatId, principal: Principal): Promise<Result<void>> {
     return attempt(async () => {
       await this.change(tripId, (trip) => trip.requestClaim(seatId, principal, this.deps.clock.now()));
+    });
+  }
+
+  /** Creates or rotates the trip's generic link (QR); the old QR stops working. */
+  issueJoinLink(principalId: PrincipalId, tripId: TripId): Promise<Result<{ token: string }>> {
+    return attempt(async () =>
+      this.change(tripId, (trip) => {
+        const { token } = this.deps.tokens.issue();
+        trip.issueJoinLink(trip.actor(principalId).id, token);
+        return { token };
+      }),
+    );
+  }
+
+  /** What the generic link shows: the trip, who organizes it and the unclaimed first names. */
+  previewJoinLink(tripId: TripId, token: string, viewer: PrincipalId | null): Promise<Result<JoinPreviewDTO>> {
+    return attempt(async () => {
+      const trip = await this.load(tripId);
+      trip.assertJoinLink(token);
+      const pending = viewer ? trip.pendingSeatOf(viewer) : undefined;
+      return {
+        tripId: trip.id,
+        tripName: trip.name,
+        organizer: trip.owner.displayName,
+        seats: trip.allSeats
+          .filter((s) => s.isActive && !s.isLinked)
+          .map((s) => ({
+            id: s.id,
+            firstName: s.displayName.split(" ")[0],
+            waiting: s.pendingClaim !== null && s.pendingClaim.principalId !== viewer,
+          })),
+        state: viewer && trip.seatOf(viewer) ? "member" : pending ? "pending" : "open",
+        pendingSeatName: pending?.displayName ?? null,
+      };
+    });
+  }
+
+  /** Generic link: "Soy Leo" (seatId) or "No estoy en la lista" (newName). Waits for approval. */
+  requestJoin(
+    tripId: TripId,
+    token: string,
+    principal: Principal,
+    choice: { seatId: SeatId } | { newName: string },
+  ): Promise<Result<void>> {
+    return attempt(async () => {
+      const now = this.deps.clock.now();
+      await this.change(tripId, (trip) => {
+        if ("seatId" in choice) trip.requestClaimWithJoinLink(token, choice.seatId, principal, now);
+        else trip.requestNewSeatWithJoinLink(token, choice.newName, principal, SeatId(this.deps.ids.next()), now);
+      });
+    });
+  }
+
+  rejectClaim(principalId: PrincipalId, tripId: TripId, seatId: SeatId): Promise<Result<void>> {
+    return attempt(async () => {
+      await this.change(tripId, (trip) => trip.rejectClaim(trip.actor(principalId).id, seatId));
     });
   }
 

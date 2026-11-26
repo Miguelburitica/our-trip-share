@@ -27,6 +27,8 @@
 
 - [x] 5.1 Wire `createTrip` and the trip header into the app via the composition root; verify by creating "Cartagena" in the browser
 - [x] 5.2 Build the join screen for personal links (Tonal design, Spanish copy); verify by opening a seat link in a fresh browser session
+- [x] 5.3 Build the generic link: QR + WhatsApp in Viaje (create, rotate), the `/u/[tripId]/[token]` picker ("Soy Leo" / "No estoy en la lista") with a waiting screen, and approve/reject in Viaje and Inicio; verify with Vitest and in the browser
+- [x] 5.4 "Reenviar" a personal link for a linked seat (moves on first use, one-time links), with the recovery copy on the join screen; revoke the client-callable linking RPCs; verify with Vitest, pgTAP and in the browser
 
 ## 6. Auth
 

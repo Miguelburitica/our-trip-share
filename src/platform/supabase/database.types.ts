@@ -283,14 +283,14 @@ isOneToOne: false
                   ]
                 },"trips": {
                   Row: {
-                    "base_currency": string,"created_at": string,"end_date": string | null,"hub_seat_id": string | null,"id": string,"name": string,"settle_mode": Database["public"]['Enums']["settle_mode"],"start_date": string | null,"status": Database["public"]['Enums']["trip_status"],"version": number
+                    "base_currency": string,"created_at": string,"end_date": string | null,"hub_seat_id": string | null,"id": string,"join_token": string | null,"name": string,"settle_mode": Database["public"]['Enums']["settle_mode"],"start_date": string | null,"status": Database["public"]['Enums']["trip_status"],"version": number
                   }
                   ComputedFields: never
                   Insert: {
-                    "base_currency": string,"created_at"?: string,"end_date"?: string | null,"hub_seat_id"?: string | null,"id"?: string,"name": string,"settle_mode"?: Database["public"]['Enums']["settle_mode"],"start_date"?: string | null,"status"?: Database["public"]['Enums']["trip_status"],"version"?: number
+                    "base_currency": string,"created_at"?: string,"end_date"?: string | null,"hub_seat_id"?: string | null,"id"?: string,"join_token"?: string | null,"name": string,"settle_mode"?: Database["public"]['Enums']["settle_mode"],"start_date"?: string | null,"status"?: Database["public"]['Enums']["trip_status"],"version"?: number
                   }
                   Update: {
-                    "base_currency"?: string,"created_at"?: string,"end_date"?: string | null,"hub_seat_id"?: string | null,"id"?: string,"name"?: string,"settle_mode"?: Database["public"]['Enums']["settle_mode"],"start_date"?: string | null,"status"?: Database["public"]['Enums']["trip_status"],"version"?: number
+                    "base_currency"?: string,"created_at"?: string,"end_date"?: string | null,"hub_seat_id"?: string | null,"id"?: string,"join_token"?: string | null,"name"?: string,"settle_mode"?: Database["public"]['Enums']["settle_mode"],"start_date"?: string | null,"status"?: Database["public"]['Enums']["trip_status"],"version"?: number
                   }
                   Relationships: [
                     {

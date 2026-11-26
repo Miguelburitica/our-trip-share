@@ -43,6 +43,7 @@ function toProps(r: TripRow): TripProps {
     status: r.status,
     settleMode: r.settle_mode,
     hubSeatId: r.hub_seat_id as SeatId | null,
+    joinToken: r.join_token,
     createdAt: toDate(r.created_at),
     seats: [...r.seats].sort((a, b) => a.position - b.position).map(toSeat),
   };
@@ -58,6 +59,7 @@ function toRow(p: TripProps) {
     status: p.status,
     settle_mode: p.settleMode,
     hub_seat_id: p.hubSeatId,
+    join_token: p.joinToken,
     created_at: p.createdAt.toISOString(),
     seats: p.seats.map((s, position) => ({
       id: s.id,

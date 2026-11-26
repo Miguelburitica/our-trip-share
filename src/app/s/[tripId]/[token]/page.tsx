@@ -45,6 +45,18 @@ export default async function Unirse({ params }: { params: Promise<{ tripId: str
           </div>
         </>
       )}
+      {p.state === "recover" && (
+        <>
+          <p className="text-[17px] text-muted">
+            {p.organizer} te reenvió tu enlace de <span className="font-semibold text-ink">{p.tripName}</span>. Al entrar aquí, tu
+            lugar pasa a este teléfono y el anterior deja de tener acceso.
+          </p>
+          <div className="mt-auto flex flex-col gap-4 pt-10">
+            <JoinButton tripId={p.tripId} token={token} seatName={p.seatName} />
+            <p className={`${ui.hint} text-center`}>Tus gastos y pagos siguen igual.</p>
+          </div>
+        </>
+      )}
       {p.state === "taken" && (
         <p className="text-[17px] text-muted">
           Este lugar ya se abrió en otro teléfono. Si eres tú, pídele a {p.organizer} que te reenvíe el enlace.

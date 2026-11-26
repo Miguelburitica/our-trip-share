@@ -233,10 +233,33 @@ describe("Use cases wired through the composition root", () => {
     const member = await c.membership.previewInvite(tripId, token, DEMO_PRINCIPAL);
     expect(mine.ok && mine.value.state).toBe("mine");
     expect(stranger.ok && stranger.value.state).toBe("taken");
-    expect(member.ok && member.value.state).toBe("taken");
+    expect(member.ok && member.value.state).toBe("member");
 
     const wrong = await c.membership.previewInvite(tripId, "not-a-token", null);
     expect(!wrong.ok && wrong.error.code).toBe("forbidden");
+  });
+
+  it("joins through the generic link: pick a name, wait, get approved", async () => {
+    const { c, tripId, seat } = await setup();
+    const link = await c.membership.issueJoinLink(DEMO_PRINCIPAL, tripId);
+    if (!link.ok) throw link.error;
+    const leo = { id: PrincipalId("guest-leo"), kind: "guest" as const };
+
+    const preview = await c.membership.previewJoinLink(tripId, link.value.token, null);
+    if (!preview.ok) throw preview.error;
+    expect(preview.value.state).toBe("open");
+    expect(preview.value.seats.map((s) => s.firstName)).toContain("Leo");
+    expect(preview.value.seats.map((s) => s.firstName)).not.toContain("Mateo");
+
+    expect((await c.membership.requestJoin(tripId, link.value.token, leo, { seatId: seat("Leo") })).ok).toBe(true);
+    const waiting = await c.membership.previewJoinLink(tripId, link.value.token, leo.id);
+    expect(waiting.ok && waiting.value).toMatchObject({ state: "pending", pendingSeatName: "Leo" });
+    const blind = await c.membership.getTrip(leo.id, tripId);
+    expect(!blind.ok && blind.error.code).toBe("forbidden");
+
+    expect((await c.membership.approveClaim(DEMO_PRINCIPAL, tripId, seat("Leo"))).ok).toBe(true);
+    const inside = await c.membership.getTrip(leo.id, tripId);
+    expect(inside.ok && inside.value.mySeatId).toBe(seat("Leo"));
   });
 
   it("turns a guest's seats into account seats when they save their access", async () => {

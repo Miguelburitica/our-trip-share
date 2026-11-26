@@ -1,12 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { CATEGORIES, type Category } from "@/contexts/expense-ledger/domain/expense";
 import { requirePrincipal, signOut } from "@/composition/auth";
 import { getContainer } from "@/composition/server";
 import { ERROR_COPY as COPY } from "@/app/ui/copy";
+import { requestOrigin } from "@/app/ui/origin";
 import { ExpenseId, NoticeId, SeatId, SplitGroupId, TripId } from "@/shared-kernel/ids";
 
 export type ActionResult =
@@ -156,7 +156,7 @@ export async function deleteSplitGroupAction(tripId: string, groupId: string): P
 export type InviteResult = { ok: true; url: string; message: string } | { ok: false; message: string };
 
 /** "Invitar": a fresh personal link for one seat. Issuing again revokes the previous link. */
-export async function issueInviteAction(tripId: string, seatId: string): Promise<InviteResult> {
+export async function issueInviteAction(tripId: string, seatId: string, recover = false): Promise<InviteResult> {
   const { id: principal } = await requirePrincipal();
   const c = await getContainer();
   const trip = await c.membership.getTrip(principal, TripId(tripId));
@@ -165,14 +165,15 @@ export async function issueInviteAction(tripId: string, seatId: string): Promise
   const result = await c.membership.issueInvite(principal, TripId(tripId), SeatId(String(seatId)));
   if (!result.ok || !seat) return { ok: false, message: result.ok ? COPY.not_found : result.error.message };
 
-  const h = await headers();
-  const origin = h.get("origin") ?? `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}`;
+  const origin = await requestOrigin();
   const url = `${origin}/s/${tripId}/${encodeURIComponent(result.value.token)}`;
   const first = seat.displayName.split(" ")[0];
   return {
     ok: true,
     url,
-    message: `${first}, te agregué a *${trip.value.name}* en Our Share. Aquí ves cuánto te toca: ${url}`,
+    message: recover
+      ? `${first}, aquí está tu nuevo enlace para *${trip.value.name}* en Our Share. Al abrirlo, tu lugar pasa a ese teléfono: ${url}`
+      : `${first}, te agregué a *${trip.value.name}* en Our Share. Aquí ves cuánto te toca: ${url}`,
   };
 }
 
@@ -182,6 +183,28 @@ export async function dismissNoticeAction(tripId: string, noticeId: string): Pro
   const c = await getContainer();
   await c.settlement.dismissNotice(principal, TripId(tripId), NoticeId(String(noticeId)));
   revalidatePath(`/t/${tripId}`);
+}
+
+/** Creates or rotates the trip's generic link (QR). */
+export async function issueJoinLinkAction(tripId: string): Promise<{ ok: boolean; message?: string }> {
+  const { id: principal } = await requirePrincipal();
+  const c = await getContainer();
+  const r = await c.membership.issueJoinLink(principal, TripId(tripId));
+  if (!r.ok) return { ok: false, message: r.error.message || COPY[r.error.code] };
+  revalidatePath(`/t/${tripId}`, "layout");
+  return { ok: true };
+}
+
+/** Approve or reject someone who asked to join through the generic link. */
+export async function decideClaimAction(tripId: string, seatId: string, approve: boolean): Promise<{ ok: boolean; message?: string }> {
+  const { id: principal } = await requirePrincipal();
+  const c = await getContainer();
+  const r = approve
+    ? await c.membership.approveClaim(principal, TripId(tripId), SeatId(String(seatId)))
+    : await c.membership.rejectClaim(principal, TripId(tripId), SeatId(String(seatId)));
+  if (!r.ok) return { ok: false, message: r.error.message || COPY[r.error.code] };
+  revalidatePath(`/t/${tripId}`, "layout");
+  return { ok: true };
 }
 
 export async function signOutAction() {

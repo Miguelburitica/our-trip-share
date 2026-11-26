@@ -19,6 +19,10 @@ export default async function Inicio({ params }: { params: Promise<{ tripId: str
   const mine = owedToMe ? b.plan.filter((t) => t.to === b.mySeatId) : myDebts;
   const pendingForMe = b.pending.filter((p) => p.to === b.mySeatId);
   const drafts = expenses.value.filter((e) => e.status === "draft");
+  const me = trip.seats.find((s) => s.id === trip.mySeatId);
+  const joinRequests = trip.seats.filter(
+    (s) => s.pendingClaim && (me?.role === "owner" || me?.role === "admin" || s.createdBy === trip.mySeatId),
+  ).length;
   const lastDay = expenses.value[0] ? dayKey(expenses.value[0].occurredAt) : null;
   const latest = expenses.value.filter((e) => e.status === "complete" && dayKey(e.occurredAt) === lastDay).slice(0, 3);
   const base = `/t/${tripId}`;
@@ -62,9 +66,20 @@ export default async function Inicio({ params }: { params: Promise<{ tripId: str
         </div>
       </section>
 
-      {(pendingForMe.length > 0 || drafts.length > 0 || notices.value.length > 0) && (
+      {(pendingForMe.length > 0 || drafts.length > 0 || notices.value.length > 0 || joinRequests > 0) && (
         <section aria-label="Para ti" className="flex flex-col gap-3">
           <h2 className="px-1 text-[15px] font-semibold">Para ti</h2>
+          {joinRequests > 0 && (
+            <Link href={`${base}/viaje`} className="flex items-center gap-3.5 rounded-[22px] bg-surface px-4.5 py-4 shadow-card">
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="text-[15px] font-semibold">
+                  {joinRequests === 1 ? "Alguien quiere entrar al viaje" : `${joinRequests} personas quieren entrar`}
+                </span>
+                <span className="text-sm text-muted">Apruébalos en Viaje</span>
+              </span>
+              <Chevron />
+            </Link>
+          )}
           {notices.value.slice(0, 3).map((n) => (
             <div key={n.id} role="status" className="flex items-center gap-3.5 rounded-[22px] bg-accent-soft px-4.5 py-4">
               <span className="flex min-w-0 flex-1 flex-col">
