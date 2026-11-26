@@ -35,13 +35,18 @@ export default async function Gastos({
         </p>
       </header>
 
-      <nav aria-label="Mostrar" className="flex gap-2">
+      <nav aria-label="Mostrar" className="flex items-center gap-2">
         <Link href={base} aria-current={!showAll ? "page" : undefined} className={`flex min-h-10 items-center rounded-full px-4.5 text-sm font-semibold ${!showAll ? "bg-ink text-bg" : "bg-tint"}`}>
           Donde estoy
         </Link>
         <Link href={`${base}?ver=todos`} aria-current={showAll ? "page" : undefined} className={`flex min-h-10 items-center rounded-full px-4.5 text-sm font-semibold ${showAll ? "bg-ink text-bg" : "bg-tint"}`}>
           Todos
         </Link>
+        {all.length > 0 && (
+          <a href={`/t/${tripId}/exportar`} download className="ml-auto flex min-h-10 items-center px-1 text-sm font-semibold text-accent-text">
+            Descargar CSV
+          </a>
+        )}
       </nav>
 
       {borrado && (
