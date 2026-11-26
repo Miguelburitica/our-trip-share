@@ -7,9 +7,9 @@ export default async function Gastos({
   searchParams,
 }: {
   params: Promise<{ tripId: string }>;
-  searchParams: Promise<{ ver?: string }>;
+  searchParams: Promise<{ ver?: string; borrado?: string }>;
 }) {
-  const [{ tripId: raw }, { ver }] = await Promise.all([params, searchParams]);
+  const [{ tripId: raw }, { ver, borrado }] = await Promise.all([params, searchParams]);
   const { c, principal, tripId, trip, nameOf } = await loadTrip(raw);
   const result = await c.ledger.listTripExpenses(principal, tripId);
   if (!result.ok) throw new Error("No pudimos cargar los gastos");
@@ -43,6 +43,12 @@ export default async function Gastos({
           Todos
         </Link>
       </nav>
+
+      {borrado && (
+        <p role="status" className="rounded-2xl bg-tint px-4 py-3 text-[15px] font-medium">
+          Gasto borrado. Ya no cuenta en las cuentas de nadie.
+        </p>
+      )}
 
       {groups.size === 0 && <p className="px-1 text-muted">Aún no hay gastos. Toca + para agregar el primero.</p>}
 

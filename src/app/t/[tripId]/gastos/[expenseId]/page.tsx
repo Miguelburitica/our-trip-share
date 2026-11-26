@@ -3,17 +3,19 @@ import { notFound } from "next/navigation";
 import { expenseTitle, fmt } from "@/app/ui/money";
 import { ExpenseId } from "@/shared-kernel/ids";
 import { loadTrip } from "../../data";
+import { DeleteExpenseButton } from "./delete-button";
 import { SplitEditor } from "./split-editor";
 
 const CATEGORY = { comida: "Comida", transporte: "Transporte", super: "Súper", tragos: "Tragos", alojamiento: "Alojamiento", planes: "Planes", otro: "Otro" } as const;
-const HISTORY = {
-  created: "registró el gasto",
-  drafted: "subió el recibo",
-  completed: "completó el recibo",
-  money_changed: "cambió el monto o el reparto",
-  details_changed: "cambió los detalles",
-  deleted: "lo borró",
-} as Record<string, string>;
+/** [someone else, you]: "Mateo cambió…" / "Tú cambiaste…". */
+const HISTORY: Record<string, [string, string]> = {
+  created: ["registró el gasto", "registraste el gasto"],
+  drafted: ["subió el recibo", "subiste el recibo"],
+  completed: ["completó el recibo", "completaste el recibo"],
+  money_changed: ["cambió el monto o el reparto", "cambiaste el monto o el reparto"],
+  details_changed: ["cambió los detalles", "cambiaste los detalles"],
+  deleted: ["lo borró", "lo borraste"],
+};
 const when = new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: "America/Bogota" });
 
 export default async function DetalleGasto({ params }: { params: Promise<{ tripId: string; expenseId: string }> }) {
@@ -43,7 +45,7 @@ export default async function DetalleGasto({ params }: { params: Promise<{ tripI
         <h1 className="text-[26px] leading-tight font-bold tracking-tight">{expenseTitle(e)}</h1>
         <span className="tabular text-[44px] leading-tight font-bold tracking-tight">{e.amount !== null ? fmt(e.amount, cur) : "Sin monto"}</span>
         <span className="text-sm text-muted">
-          {when.format(new Date(e.occurredAt))} · Agregado por {nameOf(e.createdBy)}
+          {when.format(new Date(e.occurredAt))} · Agregado por {e.createdBy === trip.mySeatId ? "ti" : nameOf(e.createdBy)}
           {e.receiptCount > 0 && (
             <>
               {" · "}
@@ -103,12 +105,14 @@ export default async function DetalleGasto({ params }: { params: Promise<{ tripI
         <p className="px-1 text-sm text-muted">Este gasto está en otra moneda; aún no se puede editar el reparto aquí.</p>
       )}
 
-      <section aria-label="Historial" className="flex flex-col gap-2 px-1">
+{e.status !== "deleted" && <DeleteExpenseButton tripId={tripId} expenseId={e.id} />}
+
+            <section aria-label="Historial" className="flex flex-col gap-2 px-1">
         <h2 className="text-sm font-semibold text-muted">Historial</h2>
         <ol className="flex flex-col gap-1.5 text-[14px]">
           {[...e.history].reverse().map((h, i) => (
             <li key={i}>
-              <span className="font-semibold">{nameOf(h.by)}</span> {HISTORY[h.kind] ?? h.kind}
+              <span className="font-semibold">{nameOf(h.by)}</span> {HISTORY[h.kind]?.[h.by === trip.mySeatId ? 1 : 0] ?? h.kind}
               <span className="text-muted"> · {when.format(new Date(h.at))}</span>
             </li>
           ))}

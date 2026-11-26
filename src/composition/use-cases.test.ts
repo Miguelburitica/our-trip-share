@@ -150,6 +150,12 @@ describe("Use cases wired through the composition root", () => {
     expect(detail.value.history.map((h) => h.kind)).toEqual(["created", "money_changed"]);
     const stale = await c.ledger.editExpenseMoney(DEMO_PRINCIPAL, tripId, id, 1, { currency: "COP", amount: 1_000 });
     expect(!stale.ok && stale.error.code).toBe("conflict");
+
+    expect((await c.ledger.deleteExpense(DEMO_PRINCIPAL, tripId, id)).ok).toBe(true);
+    const gone = await c.ledger.getExpense(DEMO_PRINCIPAL, tripId, id);
+    expect(!gone.ok && gone.error.code).toBe("not_found");
+    const list = await c.ledger.listTripExpenses(DEMO_PRINCIPAL, tripId);
+    expect(list.ok && list.value.some((e) => e.id === id)).toBe(false);
   });
 
   it("offers quick-add presets: same as last, and saved groups shared by the trip", async () => {

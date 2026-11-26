@@ -26,3 +26,4 @@
 - [x] 5.2 Build the Gastos list grouped by day showing "tu parte"; verify in the browser
 - [x] 5.3 Receipt photos in quick add: private `receipts` bucket, `scanReceipt` / `receiptUrl` use cases, `ReceiptReader` port with an OpenRouter vision adapter (on when `OPENROUTER_API_KEY` is set; model `OPENROUTER_RECEIPT_MODEL`), "Ver factura" in Gastos; verify with Vitest, `npm run test:db` and in the browser (attach path; live reading not yet verified without a key)
 - [x] 5.4 Build the expense detail (Pagó, Le toca a, history, "Ver factura") and "Editar reparto" (exact amounts with the rest rebalanced equally, `getExpense`, `editExpenseMoney`); verify with Vitest and in the browser
+- [x] 5.5 "Borrar gasto" in the detail with a confirm step (soft delete via `deleteExpense`; R14 notices for settled members), back to Gastos with "Gasto borrado"; verify with Vitest and in the browser

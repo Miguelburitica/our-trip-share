@@ -91,6 +91,16 @@ export async function editSplitAction(input: {
   return { ok: true };
 }
 
+/** "Borrar gasto": soft delete (it leaves everyone's balances, history keeps it), then back to Gastos. */
+export async function deleteExpenseAction(tripId: string, expenseId: string): Promise<{ ok: false; message: string }> {
+  const { id: principal } = await requirePrincipal();
+  const c = await getContainer();
+  const r = await c.ledger.deleteExpense(principal, TripId(tripId), ExpenseId(String(expenseId)));
+  if (!r.ok) return { ok: false, message: r.error.message || COPY[r.error.code] };
+  revalidatePath(`/t/${tripId}`, "layout");
+  redirect(`/t/${tripId}/gastos?borrado=1`);
+}
+
 export type ScanResult =
   | {
       ok: true;
