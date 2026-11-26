@@ -1,0 +1,161 @@
+import { describe, expect, it } from "vitest";
+import { fixedClock, DAY } from "@/shared-kernel/clock";
+import { PrincipalId, sequentialIds, type SeatId } from "@/shared-kernel/ids";
+import { TripMembershipUseCases } from "@/contexts/trip-membership/application/use-cases";
+import type { Trip } from "@/contexts/trip-membership/domain/trip";
+import { hashTokenService } from "@/contexts/trip-membership/infrastructure/hash-token-service";
+import { InMemoryTripRepository } from "@/contexts/trip-membership/infrastructure/in-memory-trip-repository";
+import { conflict } from "@/shared-kernel/errors";
+import { createMemoryContainer } from "./container";
+import { DEMO_PRINCIPAL, seedCartagena } from "./demo-seed";
+
+const setup = async () => {
+  const clock = fixedClock("2026-11-22T20:00:00-05:00");
+  const c = createMemoryContainer({ clock, ids: sequentialIds("id") });
+  const tripId = await seedCartagena(c);
+  const trip = await c.membership.getTrip(DEMO_PRINCIPAL, tripId);
+  if (!trip.ok) throw trip.error;
+  const seat = (name: string) => trip.value.seats.find((s) => s.displayName === name)!.id as SeatId;
+  return { c, clock, tripId, seat };
+};
+
+describe("Use cases wired through the composition root", () => {
+  it("reproduces the Cartagena balances and simplified plan end to end", async () => {
+    const { c, tripId, seat } = await setup();
+    const r = await c.settlement.getTripBalances(DEMO_PRINCIPAL, tripId);
+    if (!r.ok) throw r.error;
+    expect(r.value.myBalance).toBe(1_687_000);
+    expect(r.value.plan).toHaveLength(5);
+    expect(r.value.plan).toContainEqual({ from: seat("Juli"), to: seat("Mateo"), amount: 641_000, pendingSettlementId: null });
+  });
+
+  it("lets a guest join with a personal link and record a pending payment", async () => {
+    const { c, clock, tripId, seat } = await setup();
+    const invite = await c.membership.issueInvite(DEMO_PRINCIPAL, tripId, seat("Juli"));
+    if (!invite.ok) throw invite.error;
+    const juli = { id: PrincipalId("guest-juli"), kind: "guest" as const };
+    const joined = await c.membership.claimWithInvite(tripId, invite.value.token, juli);
+    expect(joined.ok && joined.value.mySeatId).toBe(seat("Juli"));
+
+    const paid = await c.settlement.recordSettlement(juli.id, tripId, {
+      from: seat("Juli"),
+      to: seat("Mateo"),
+      amount: 641_000,
+      method: "breb",
+    });
+    expect(paid.ok && paid.value.status).toBe("pending");
+
+    const balances = await c.settlement.getTripBalances(DEMO_PRINCIPAL, tripId);
+    if (!balances.ok) throw balances.error;
+    expect(balances.value.balances.find((b) => b.seatId === seat("Juli"))!.balance).toBe(-641_000);
+    expect(balances.value.plan.find((t) => t.from === seat("Juli"))!.pendingSettlementId).not.toBeNull();
+
+    clock.advance(3 * DAY);
+    const later = await c.settlement.getTripBalances(DEMO_PRINCIPAL, tripId);
+    if (!later.ok) throw later.error;
+    expect(later.value.balances.find((b) => b.seatId === seat("Juli"))!.settled).toBe(true);
+  });
+
+  it("returns a duplicate warning on quick add and blocks strangers", async () => {
+    const { c, tripId } = await setup();
+    const first = await c.ledger.recordExpense(DEMO_PRINCIPAL, tripId, { currency: "COP", amount: 184_000 });
+    const second = await c.ledger.recordExpense(DEMO_PRINCIPAL, tripId, { currency: "COP", amount: 184_000 });
+    expect(first.ok).toBe(true);
+    expect(second.ok && second.value.warnings.map((w) => w.code)).toEqual(["possible_duplicate"]);
+    const stranger = await c.ledger.recordExpense(PrincipalId("nobody"), tripId, { currency: "COP", amount: 1000 });
+    expect(!stranger.ok && stranger.error.code).toBe("forbidden");
+  });
+
+  it("refuses to remove a seat that has expenses", async () => {
+    const { c, tripId, seat } = await setup();
+    const r = await c.membership.removeSeat(DEMO_PRINCIPAL, tripId, seat("Caro"));
+    expect(!r.ok && r.error.code).toBe("invalid_state");
+  });
+
+  it("detects a stale money edit as a conflict", async () => {
+    const { c, tripId } = await setup();
+    const created = await c.ledger.recordExpense(DEMO_PRINCIPAL, tripId, { currency: "COP", amount: 60_000 });
+    if (!created.ok) throw created.error;
+    const id = created.value.expense.id;
+    const a = await c.ledger.editExpenseMoney(DEMO_PRINCIPAL, tripId, id, 1, { currency: "COP", amount: 66_000 });
+    const b = await c.ledger.editExpenseMoney(DEMO_PRINCIPAL, tripId, id, 1, { currency: "COP", amount: 70_000 });
+    expect(a.ok).toBe(true);
+    expect(!b.ok && b.error.code).toBe("conflict");
+  });
+
+  it("previews a personal link without a session, then reports who holds it", async () => {
+    const { c, tripId, seat } = await setup();
+    const invite = await c.membership.issueInvite(DEMO_PRINCIPAL, tripId, seat("Juli"));
+    if (!invite.ok) throw invite.error;
+    const token = invite.value.token;
+    const juli = { id: PrincipalId("guest-juli"), kind: "guest" as const };
+
+    const before = await c.membership.previewInvite(tripId, token, null);
+    expect(before.ok && before.value).toMatchObject({ seatName: "Juli", organizer: "Mateo", state: "open" });
+    const organizer = await c.membership.previewInvite(tripId, token, DEMO_PRINCIPAL);
+    expect(organizer.ok && organizer.value.state).toBe("member");
+    await c.membership.claimWithInvite(tripId, token, juli);
+    const mine = await c.membership.previewInvite(tripId, token, juli.id);
+    const stranger = await c.membership.previewInvite(tripId, token, PrincipalId("someone-else"));
+    const member = await c.membership.previewInvite(tripId, token, DEMO_PRINCIPAL);
+    expect(mine.ok && mine.value.state).toBe("mine");
+    expect(stranger.ok && stranger.value.state).toBe("taken");
+    expect(member.ok && member.value.state).toBe("taken");
+
+    const wrong = await c.membership.previewInvite(tripId, "not-a-token", null);
+    expect(!wrong.ok && wrong.error.code).toBe("forbidden");
+  });
+
+  it("turns a guest's seats into account seats when they save their access", async () => {
+    const { c, tripId, seat } = await setup();
+    const invite = await c.membership.issueInvite(DEMO_PRINCIPAL, tripId, seat("Ana"));
+    if (!invite.ok) throw invite.error;
+    const ana = { id: PrincipalId("guest-ana"), kind: "guest" as const };
+    await c.membership.claimWithInvite(tripId, invite.value.token, ana);
+
+    expect((await c.membership.guestSavedAccess(ana.id)).ok).toBe(true);
+    const trip = await c.membership.getTrip(ana.id, tripId);
+    expect(trip.ok && trip.value.seats.find((s) => s.id === seat("Ana"))?.linkKind).toBe("user");
+  });
+});
+
+describe("Concurrent trip writes", () => {
+  /** A repository whose first `failures` saves lose a race, like save_trip's version check. */
+  class RacyTrips extends InMemoryTripRepository {
+    failures = 0;
+    override async save(trip: Trip) {
+      if (this.failures-- > 0) throw conflict("lost the race");
+      return super.save(trip);
+    }
+  }
+
+  const build = (trips: InMemoryTripRepository) =>
+    new TripMembershipUseCases({
+      trips,
+      tokens: hashTokenService,
+      settlements: { hasSettlements: async () => false },
+      seatUsage: { isSeatUsed: async () => false },
+      ids: sequentialIds("r"),
+      clock: fixedClock("2026-11-22T20:00:00-05:00"),
+    });
+
+  it("retries on fresh data when another write got there first", async () => {
+    const trips = new RacyTrips();
+    const uc = build(trips);
+    const created = await uc.createTrip({ principal: { id: DEMO_PRINCIPAL, kind: "user" }, displayName: "Mateo", name: "Tayrona", baseCurrency: "COP" });
+    if (!created.ok) throw created.error;
+    trips.failures = 2;
+    const added = await uc.addSeat(DEMO_PRINCIPAL, created.value.id, "Leo");
+    expect(added.ok && added.value.seats.map((s) => s.displayName)).toEqual(["Mateo", "Leo"]);
+  });
+
+  it("gives up after three lost races", async () => {
+    const trips = new RacyTrips();
+    const uc = build(trips);
+    const created = await uc.createTrip({ principal: { id: DEMO_PRINCIPAL, kind: "user" }, displayName: "Mateo", name: "Tayrona", baseCurrency: "COP" });
+    if (!created.ok) throw created.error;
+    trips.failures = 3;
+    const added = await uc.addSeat(DEMO_PRINCIPAL, created.value.id, "Leo");
+    expect(!added.ok && added.error.code).toBe("conflict");
+  });
+});

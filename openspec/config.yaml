@@ -1,0 +1,49 @@
+schema: spec-driven
+
+context: |
+  Product: Our Share, a shared space for a group trip. Module #1 is Expenses ("Gastos").
+  Future modules (photos, itinerary, polls) plug into the same trip, seats and activity feed.
+  Primary market: Colombian friend groups; UI copy is Spanish (es-CO) first, English second.
+  Product source of truth: docs/PRODUCT_SPEC.md (rules R1–R15, P1–P3), docs/ADVERSARIAL_REVIEW.md,
+  docs/DESIGN.md (Tonal design system), docs/ARCHITECTURE.md (DDD layout).
+
+  Tech stack: Next.js 16 (App Router, React 19, TypeScript strict), Tailwind CSS 4,
+  Supabase (Postgres + RLS, Auth incl. anonymous sign-in for guest seats, Storage, Realtime),
+  Vitest for tests. Mobile-first PWA.
+
+  Architecture: Domain-Driven Design with three bounded contexts:
+  - trip-membership: Trip aggregate (lifecycle, settle mode, base currency) and Seat entities
+    (placeholder, guest, account), invites and claims.
+  - expense-ledger: Expense aggregate with a versioned money block (amount, currency, FX rate,
+    payers, shares, split method), drafts, refunds.
+  - settlement: derived balances, settlement plans (simplified / hub / direct), Settlement aggregate.
+  Shared kernel: Money, Currency table, FX rate math, identifiers, Result, DomainError.
+  Layers per context: domain (pure TS, no framework or IO imports) → application (use cases + ports)
+  → infrastructure (Supabase and in-memory adapters). Presentation lives in src/app and only calls
+  application use cases through the composition root.
+
+  Money invariants: integers in our currency table's minor units, never floats; FX rates as decimal
+  strings computed with BigInt; deterministic largest-remainder allocation; balances always derived.
+
+rules:
+  proposal:
+    - Name the bounded context(s) the change touches.
+    - Keep proposals under 600 words.
+  specs:
+    - Group capabilities by bounded context path, e.g. expense-ledger/expense-capture.
+    - Every money rule needs at least one scenario with concrete COP amounts.
+  design:
+    - State which layer each new piece belongs to (domain, application, infrastructure, presentation).
+    - Any cross-context dependency must go through a port owned by the consuming context.
+  tasks:
+    - Domain tasks come first and are verified with Vitest unit tests.
+    - Each task names its verification (test, command, or observable behavior).
+
+operations:
+  apply:
+    guidance:
+      - Domain code must not import from application, infrastructure, Next.js or Supabase.
+      - Run npm test and npx tsc --noEmit before marking a task group complete.
+  archive:
+    guidance:
+      - Summarize which PRODUCT_SPEC rules the archived specs now cover.

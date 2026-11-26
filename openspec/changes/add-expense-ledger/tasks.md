@@ -1,0 +1,26 @@
+## 1. Shared kernel money math
+
+- [x] 1.1 Implement `allocate()` (largest remainder, deterministic tie-break, negative totals); verify with `src/shared-kernel/money/allocate.test.ts`, including sum invariants over random inputs
+- [x] 1.2 Implement `FxRate` parse/convert (BigInt, half-even, exponent differences) and `fromCardCharge`; verify with `src/shared-kernel/money/fx-rate.test.ts` using the spec scenarios
+
+## 2. Expense ledger domain
+
+- [x] 2.1 Implement `MoneyBlock.create` for equal and exact splits, payer sums and base allocation; verify with Vitest scenarios from `split-rules/spec.md` and `currency-conversion/spec.md`
+- [x] 2.2 Implement the `Expense` aggregate: record, draft, complete draft, versioned money edit, payer-change permission, soft delete, money received; verify with Vitest scenarios from `expense-capture/spec.md`
+- [x] 2.3 Implement the `ExpenseGuards` domain service (personal, duplicate, unusually large); verify with Vitest
+
+## 3. Application and adapters
+
+- [x] 3.1 Define the `ExpenseRepository` and `MembershipReader` ports with in-memory adapters; verify with use-case tests
+- [x] 3.2 Implement the use cases `recordExpense`, `snapReceiptDraft`, `completeDraft`, `editExpenseMoney`, `deleteExpense`, `listTripExpenses`; verify with Vitest using in-memory adapters
+- [x] 3.3 Implement the Supabase `ExpenseRepository` using the `save_expense` RPC (row order, full history, FX rate read as text); verify against the local stack with `npm run test:db`
+
+## 4. Database
+
+- [x] 4.1 Write the migration for `expenses`, `expense_payers` and `expense_shares`, with the deferred sum-check trigger and the `save_expense` RPC; verify with `supabase db reset` and an SQL assertion that an unbalanced insert fails
+- [x] 4.2 Add RLS: only linked trip members read and write expenses of their trip; verify with SQL assertions
+
+## 5. Presentation
+
+- [ ] 5.1 Build the quick-add sheet (Tonal design, keypad, category chips, split picker, presets, inline warnings) calling `recordExpense`; verify by adding 184.000 COP in the browser and seeing it in Gastos
+- [x] 5.2 Build the Gastos list grouped by day showing "tu parte"; verify in the browser

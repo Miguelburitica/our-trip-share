@@ -1,0 +1,43 @@
+## Purpose
+
+Defines how each seat's balance in the trip's base currency is derived from the ledger and settlements, and when a balance counts as settled.
+
+## ADDED Requirements
+
+### Requirement: Derived balance per seat
+A seat's balance SHALL equal what it paid minus what it owes across complete expenses, plus confirmed settlements it sent, minus confirmed settlements it received, all in base-currency units. Money-received expenses SHALL count with the opposite sign. Drafts, deleted expenses, rate-pending expenses, and pending, disputed or reversed settlements SHALL NOT count.
+
+#### Scenario: Cartagena balances
+- **WHEN** the trip has these expenses:
+  - Airbnb 2.400.000 paid by Mateo, split among 6
+  - Cena 540.000 paid by Ana, split among 6
+  - Taxi 84.000 paid by Leo, split among Mateo, Leo, Caro and Juli
+  - Súper 312.000 paid by Caro, split among 6
+  - Lancha 900.000 paid by Andrés, split among 6
+  - Cervezas 96.000 paid by Juli, split among Juli, Leo, Andrés and Ana
+- **THEN** the balances are: Mateo +1.687.000, Andrés +184.000, Ana −176.000, Caro −401.000, Juli −641.000, Leo −653.000
+
+#### Scenario: Pending settlement does not count
+- **WHEN** Juli records "Ya pagué 641.000 to Mateo" and Mateo has not confirmed
+- **THEN** Juli's balance is still −641.000 and the settlement is shown as pending
+
+### Requirement: Balances sum to zero
+The sum of all seats' balances in a trip SHALL be exactly 0 at all times.
+
+#### Scenario: Any set of complete expenses
+- **WHEN** balances are computed for any trip
+- **THEN** their sum is 0
+
+### Requirement: Dust tolerance
+A balance whose absolute value is below the base currency's dust tolerance (COP 100, USD 0.05, EUR 0.05) SHALL count as settled.
+
+#### Scenario: Leftover 40 pesos
+- **WHEN** Caro's balance is −40 COP after paying in USD
+- **THEN** Caro is shown as settled
+
+### Requirement: Reopened balance detection
+When a money change moves the balance of a seat that has at least one confirmed settlement, the system SHALL emit a balance-reopened event naming the seat, the delta and the cause.
+
+#### Scenario: Dinner edited after Juli settled
+- **WHEN** Juli has a confirmed settlement and the dinner amount changes so that her share rises by 12.000
+- **THEN** a balance-reopened event for Juli with delta −12.000 is emitted

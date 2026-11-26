@@ -1,0 +1,50 @@
+## Purpose
+
+Defines how the system suggests who should pay whom to bring every balance to zero, in the trip's chosen settle mode.
+
+## ADDED Requirements
+
+### Requirement: Simplified plan
+In Simplificado mode the system SHALL repeatedly match the largest debtor with the largest creditor for the smaller of the two amounts, breaking ties by seat id. The result SHALL be at most n−1 transfers, SHALL bring every balance to zero, and SHALL be identical on every computation for the same balances.
+
+#### Scenario: Cartagena simplified
+- **WHEN** the balances are Mateo +1.687.000, Andrés +184.000, Ana −176.000, Caro −401.000, Juli −641.000 and Leo −653.000
+- **THEN** the plan has 5 transfers:
+  - Leo → Mateo 653.000
+  - Juli → Mateo 641.000
+  - Caro → Mateo 393.000
+  - Caro → Andrés 8.000
+  - Ana → Andrés 176.000
+
+### Requirement: Hub plan
+In Vía organizador mode every debtor other than the hub SHALL pay the hub its full debt, and the hub SHALL pay every creditor other than itself its full credit.
+
+#### Scenario: Cartagena via Mateo
+- **WHEN** the hub is Mateo and the balances are as above
+- **THEN** the plan has 5 transfers:
+  - Leo → Mateo 653.000
+  - Juli → Mateo 641.000
+  - Caro → Mateo 401.000
+  - Ana → Mateo 176.000
+  - Mateo → Andrés 184.000
+
+### Requirement: Direct plan
+In Directo mode the system SHALL compute, for each pair of seats, what each owes the other from the expenses they shared (proportionally to the amounts paid when there are several payers), net the pair, and subtract the confirmed settlements between them.
+
+#### Scenario: Cartagena direct
+- **WHEN** the Cartagena expenses are settled directly
+- **THEN** the plan includes Juli → Mateo 400.000, Leo → Mateo 379.000, Caro → Mateo 348.000 and Ana → Mateo 310.000, and the transfers total 15
+
+### Requirement: Pending settlements are excluded from the plan
+Pending settlements SHALL NOT reduce the suggested transfers. The plan SHALL show a pending settlement next to the transfer it would cover.
+
+#### Scenario: Juli paid but unconfirmed
+- **WHEN** Juli has a pending 641.000 settlement to Mateo
+- **THEN** the plan still contains Juli → Mateo 641.000, marked "por confirmar"
+
+### Requirement: Frozen plan during Liquidando
+When the trip enters Liquidando, the current plan SHALL be frozen. Later balance changes SHALL NOT reorder or replace the frozen transfers. The system SHALL add delta transfers computed only from the changes since freezing.
+
+#### Scenario: Expense added while settling
+- **WHEN** the plan is frozen and a 60.000 COP taxi paid by Ana is added, split between Ana and Leo
+- **THEN** the frozen transfers are unchanged and a delta transfer Leo → Ana 30.000 is added

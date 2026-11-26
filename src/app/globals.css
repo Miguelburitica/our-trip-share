@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+/* Tonal design system — docs/DESIGN.md */
+@theme {
+  --color-bg: #fbf7f3;
+  --color-surface: #ffffff;
+  --color-tint: #f3ece4;
+  --color-tint-2: #eae1d6;
+  --color-ink: #2b2420;
+  --color-ink-2: #4a3f38;
+  --color-muted: #75655a;
+  --color-accent: #c24e2a;
+  --color-accent-soft: #f6e3da;
+  --color-accent-text: #9a3e1f;
+  --color-dashed: #cdbfb1;
+  --color-nav-idle: #bfb2a6;
+
+  --font-sans: var(--font-figtree), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --shadow-card: 0 1px 2px rgba(43, 36, 32, 0.05);
+}
+
+html {
+  background: var(--color-bg);
+  color-scheme: light;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
