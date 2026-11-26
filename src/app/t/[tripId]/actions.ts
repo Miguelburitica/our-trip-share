@@ -7,7 +7,7 @@ import { CATEGORIES, type Category } from "@/contexts/expense-ledger/domain/expe
 import { requirePrincipal, signOut } from "@/composition/auth";
 import { getContainer } from "@/composition/server";
 import { ERROR_COPY as COPY } from "@/app/ui/copy";
-import { SeatId, TripId } from "@/shared-kernel/ids";
+import { SeatId, SplitGroupId, TripId } from "@/shared-kernel/ids";
 
 export type ActionResult =
   | { ok: true; warnings: string[] }
@@ -46,6 +46,30 @@ export async function recordExpenseAction(input: {
   if (!result.ok) return { ok: false, message: result.error.message || COPY[result.error.code] };
   revalidatePath(`/t/${input.tripId}`, "layout");
   return { ok: true, warnings: result.value.warnings.map((w) => WARNING_COPY[w.code]) };
+}
+
+export type GroupResult = { ok: true; group: { id: string; name: string; seatIds: string[]; canDelete: boolean } } | { ok: false; message: string };
+
+/** Saves the current selection in quick add as a named group for the whole trip. */
+export async function saveSplitGroupAction(tripId: string, name: string, seatIds: string[]): Promise<GroupResult> {
+  const { id: principal } = await requirePrincipal();
+  const c = await getContainer();
+  const r = await c.ledger.saveSplitGroup(principal, TripId(tripId), {
+    name: String(name).slice(0, 60),
+    seatIds: (seatIds ?? []).map((id) => SeatId(String(id))),
+  });
+  if (!r.ok) return { ok: false, message: r.error.message || COPY[r.error.code] };
+  revalidatePath(`/t/${tripId}/nuevo`);
+  return { ok: true, group: r.value };
+}
+
+export async function deleteSplitGroupAction(tripId: string, groupId: string): Promise<{ ok: boolean; message?: string }> {
+  const { id: principal } = await requirePrincipal();
+  const c = await getContainer();
+  const r = await c.ledger.deleteSplitGroup(principal, TripId(tripId), SplitGroupId(String(groupId)));
+  if (!r.ok) return { ok: false, message: r.error.message || COPY[r.error.code] };
+  revalidatePath(`/t/${tripId}/nuevo`);
+  return { ok: true };
 }
 
 export type InviteResult = { ok: true; url: string; message: string } | { ok: false; message: string };

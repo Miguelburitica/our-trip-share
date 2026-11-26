@@ -1,7 +1,9 @@
-import type { ExpenseRepository } from "@/contexts/expense-ledger/application/ports";
+import type { ExpenseRepository, SplitGroupRepository } from "@/contexts/expense-ledger/application/ports";
 import { ExpenseLedgerUseCases } from "@/contexts/expense-ledger/application/use-cases";
 import { InMemoryExpenseRepository } from "@/contexts/expense-ledger/infrastructure/in-memory-expense-repository";
+import { InMemorySplitGroupRepository } from "@/contexts/expense-ledger/infrastructure/in-memory-split-group-repository";
 import { SupabaseExpenseRepository } from "@/contexts/expense-ledger/infrastructure/supabase-expense-repository";
+import { SupabaseSplitGroupRepository } from "@/contexts/expense-ledger/infrastructure/supabase-split-group-repository";
 import type { SettlementRepository } from "@/contexts/settlement/application/ports";
 import { SettlementUseCases } from "@/contexts/settlement/application/use-cases";
 import { InMemorySettlementRepository } from "@/contexts/settlement/infrastructure/in-memory-settlement-repository";
@@ -22,10 +24,11 @@ export interface Container {
   settlement: SettlementUseCases;
 }
 
-/** What each backend must provide: the three repositories plus the queries other contexts ask them. */
+/** What each backend must provide: the repositories plus the queries other contexts ask them. */
 export interface Repositories {
   trips: TripRepository;
   expenses: ExpenseRepository & SeatUsage;
+  splitGroups: SplitGroupRepository;
   settlements: SettlementRepository & SettlementPresence & SeatUsage;
 }
 
@@ -36,7 +39,7 @@ export interface Repositories {
 export function createContainer(repos: Repositories, opts: { clock?: Clock; ids?: IdGenerator } = {}): Container {
   const clock = opts.clock ?? systemClock;
   const ids = opts.ids ?? uuidGenerator;
-  const { trips, expenses, settlements } = repos;
+  const { trips, expenses, splitGroups, settlements } = repos;
 
   return {
     membership: new TripMembershipUseCases({
@@ -50,7 +53,7 @@ export function createContainer(repos: Repositories, opts: { clock?: Clock; ids?
       ids,
       clock,
     }),
-    ledger: new ExpenseLedgerUseCases({ expenses, membership: ledgerMembershipReader(trips), ids, clock }),
+    ledger: new ExpenseLedgerUseCases({ expenses, splitGroups, membership: ledgerMembershipReader(trips), ids, clock }),
     settlement: new SettlementUseCases({
       settlements,
       ledger: ledgerReader(expenses),
@@ -66,6 +69,7 @@ export function createMemoryContainer(opts: { clock?: Clock; ids?: IdGenerator }
     {
       trips: new InMemoryTripRepository(),
       expenses: new InMemoryExpenseRepository(),
+      splitGroups: new InMemorySplitGroupRepository(),
       settlements: new InMemorySettlementRepository(),
     },
     opts,
@@ -77,6 +81,7 @@ export function createSupabaseContainer(db: Db, opts: { clock?: Clock; ids?: IdG
     {
       trips: new SupabaseTripRepository(db),
       expenses: new SupabaseExpenseRepository(db),
+      splitGroups: new SupabaseSplitGroupRepository(db),
       settlements: new SupabaseSettlementRepository(db),
     },
     opts,

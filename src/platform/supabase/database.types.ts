@@ -217,6 +217,32 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"split_groups": {
+                  Row: {
+                    "created_at": string,"created_by": string,"id": string,"name": string,"seat_ids": (string)[],"trip_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"created_by": string,"id": string,"name": string,"seat_ids": (string)[],"trip_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"created_by"?: string,"id"?: string,"name"?: string,"seat_ids"?: (string)[],"trip_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "split_groups_created_by_fkey"
+      columns: ["created_by"]
+isOneToOne: false
+      referencedRelation: "seats"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "split_groups_trip_id_fkey"
+      columns: ["trip_id"]
+isOneToOne: false
+      referencedRelation: "trips"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"trips": {
                   Row: {
                     "base_currency": string,"created_at": string,"end_date": string | null,"hub_seat_id": string | null,"id": string,"name": string,"settle_mode": Database["public"]['Enums']["settle_mode"],"start_date": string | null,"status": Database["public"]['Enums']["trip_status"],"version": number

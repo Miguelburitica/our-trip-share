@@ -56,6 +56,37 @@ describe("Use cases wired through the composition root", () => {
     expect(later.value.balances.find((b) => b.seatId === seat("Juli"))!.settled).toBe(true);
   });
 
+  it("offers quick-add presets: same as last, and saved groups shared by the trip", async () => {
+    const { c, tripId, seat } = await setup();
+    const before = await c.ledger.getQuickAddDefaults(DEMO_PRINCIPAL, tripId);
+    if (!before.ok) throw before.error;
+    expect(before.value.groups).toEqual([]);
+
+    const pair = [seat("Mateo"), seat("Ana")];
+    for (let i = 0; i < 2; i++) {
+      const r = await c.ledger.recordExpense(DEMO_PRINCIPAL, tripId, {
+        currency: "COP",
+        amount: 50_000,
+        split: { method: "equal", participants: pair },
+      });
+      if (!r.ok) throw r.error;
+    }
+    const saved = await c.ledger.saveSplitGroup(DEMO_PRINCIPAL, tripId, { name: "Carro 1", seatIds: [seat("Ana"), seat("Leo")] });
+    if (!saved.ok) throw saved.error;
+    const dup = await c.ledger.saveSplitGroup(DEMO_PRINCIPAL, tripId, { name: "carro 1", seatIds: pair });
+    expect(!dup.ok && dup.error.code).toBe("validation");
+
+    const after = await c.ledger.getQuickAddDefaults(DEMO_PRINCIPAL, tripId);
+    if (!after.ok) throw after.error;
+    expect(after.value).toMatchObject({ participants: pair, sameAsLast: pair, preselected: true });
+    expect(after.value.groups).toEqual([{ id: saved.value.id, name: "Carro 1", seatIds: [seat("Ana"), seat("Leo")], canDelete: true }]);
+
+    const removed = await c.ledger.deleteSplitGroup(DEMO_PRINCIPAL, tripId, saved.value.id);
+    expect(removed.ok).toBe(true);
+    const gone = await c.ledger.getQuickAddDefaults(DEMO_PRINCIPAL, tripId);
+    expect(gone.ok && gone.value.groups).toEqual([]);
+  });
+
   it("returns a duplicate warning on quick add and blocks strangers", async () => {
     const { c, tripId } = await setup();
     const first = await c.ledger.recordExpense(DEMO_PRINCIPAL, tripId, { currency: "COP", amount: 184_000 });

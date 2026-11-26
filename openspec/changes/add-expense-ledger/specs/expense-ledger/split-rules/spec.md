@@ -62,3 +62,18 @@ An expense of type "money received" SHALL split its absolute amount with the sam
 #### Scenario: Airbnb deposit returned
 - **WHEN** Ana receives a 300.000 COP deposit refund split among 3
 - **THEN** Ana's balance decreases by 300.000 for what she received, and each of the 3 participants' balances increases by 100.000
+
+### Requirement: Quick-add split presets
+Quick add SHALL preselect the participants of the last two expenses when both are complete, recorded within the last 12 hours, and share the same participants that differ from the trip default. Otherwise it SHALL preselect the trip default. The last expense's participants SHALL be offered as "Igual que el último" whenever they differ from the default. Members SHALL be able to save the current selection as a named group shared by the trip: names are unique per trip (ignoring case and spaces), up to 30 characters, with at least 2 seats of the trip, and at most 12 groups per trip. Only the group's creator or an admin SHALL delete it. Seats no longer active SHALL be dropped from a group, and a group left with fewer than 2 SHALL be hidden.
+
+#### Scenario: Same subgroup twice
+- **WHEN** Mateo and Ana split the last two expenses of the evening between the two of them
+- **THEN** the next quick add preselects Mateo and Ana, labelled "Igual que el último"
+
+#### Scenario: Saving "Carro 1"
+- **WHEN** Mateo saves Ana and Leo as "Carro 1", then Juli tries to save another group named "carro 1"
+- **THEN** the first is offered to everyone in the trip and the second is rejected as a duplicate
+
+#### Scenario: Deleting someone else's group
+- **WHEN** Leo, a plain member, tries to delete the "Parejas" group Ana created
+- **THEN** it is rejected as forbidden

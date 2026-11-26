@@ -13,7 +13,9 @@ export type Backend = "memory" | "supabase";
 export const backend = (): Backend => (process.env.DATA_BACKEND === "supabase" ? "supabase" : "memory");
 
 type MemoryHolder = { container: Container; demoTripId: TripId };
-const g = globalThis as unknown as { __ourShare?: Promise<MemoryHolder>; __ourShareDb?: Container };
+const g = globalThis as unknown as { __ourShare?: Promise<MemoryHolder> };
+// Module scope, not globalThis: it holds no data, so a hot reload should rebuild it with new code.
+let dbContainer: Container | undefined;
 
 async function buildMemory(): Promise<MemoryHolder> {
   const container = createMemoryContainer();
@@ -24,8 +26,8 @@ async function buildMemory(): Promise<MemoryHolder> {
 export async function getContainer(): Promise<Container> {
   if (backend() === "supabase") {
     // Repositories are stateless apart from per-aggregate versions held in WeakMaps, so one is enough.
-    g.__ourShareDb ??= createSupabaseContainer(serviceClient());
-    return g.__ourShareDb;
+    dbContainer ??= createSupabaseContainer(serviceClient());
+    return dbContainer;
   }
   g.__ourShare ??= buildMemory();
   return (await g.__ourShare).container;

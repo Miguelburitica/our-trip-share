@@ -134,6 +134,19 @@ describe.skipIf(!url || !secret)("Supabase repositories (local stack)", () => {
     expect(after.value.balances.find((b) => b.seatId === seats.get("Juli"))!.balance).toBe(juli.balance);
   });
 
+  it("saves, lists and deletes split groups", async () => {
+    const pair = [seats.get("Ana")!, seats.get("Juli")!];
+    const saved = await c.ledger.saveSplitGroup(mateo.id, tripId, { name: "Carro 1", seatIds: pair });
+    if (!saved.ok) throw saved.error;
+    const dup = await c.ledger.saveSplitGroup(mateo.id, tripId, { name: " CARRO 1", seatIds: pair });
+    expect(!dup.ok && dup.error.code).toBe("validation");
+    const listed = await c.ledger.getQuickAddDefaults(mateo.id, tripId);
+    expect(listed.ok && listed.value.groups.map((g) => [g.name, g.seatIds])).toEqual([["Carro 1", pair]]);
+    expect((await c.ledger.deleteSplitGroup(mateo.id, tripId, saved.value.id)).ok).toBe(true);
+    const after = await c.ledger.getQuickAddDefaults(mateo.id, tripId);
+    expect(after.ok && after.value.groups).toEqual([]);
+  });
+
   it.skipIf(!publishable)("keeps every row behind RLS for a client without a session", async () => {
     const anon = createClient<Database>(url!, publishable!, { auth: { persistSession: false } });
     const [trips, expenses] = await Promise.all([

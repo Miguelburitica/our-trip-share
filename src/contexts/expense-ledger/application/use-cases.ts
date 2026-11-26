@@ -1,13 +1,16 @@
 import type { Clock } from "@/shared-kernel/clock";
 import { forbidden, notFound } from "@/shared-kernel/errors";
-import { ExpenseId, type IdGenerator, type PrincipalId, type SeatId, type TripId } from "@/shared-kernel/ids";
+import { ExpenseId, SplitGroupId, type IdGenerator, type PrincipalId, type SeatId, type TripId } from "@/shared-kernel/ids";
 import { attempt, type Result } from "@/shared-kernel/result";
 import { Expense, type Category, type Context, type ExpenseType, type MoneyInput } from "../domain/expense";
 import { evaluateGuards, type ExpenseWarning } from "../domain/guards";
-import type { ExpenseRepository, MembershipReader } from "./ports";
+import { SplitGroup } from "../domain/split-group";
+import { suggestSplit } from "../domain/split-suggestion";
+import type { ExpenseRepository, MembershipReader, SplitGroupRepository } from "./ports";
 
 export interface ExpenseLedgerDeps {
   expenses: ExpenseRepository;
+  splitGroups: SplitGroupRepository;
   membership: MembershipReader;
   ids: IdGenerator;
   clock: Clock;
@@ -51,6 +54,20 @@ export function toExpenseDTO(expense: Expense, mySeatId: SeatId | null): Expense
     moneyVersion: expense.moneyVersion,
     createdBy: expense.createdBy,
   };
+}
+
+export interface SplitGroupDTO {
+  id: SplitGroupId;
+  name: string;
+  seatIds: SeatId[];
+  canDelete: boolean;
+}
+
+export interface QuickAddDefaultsDTO {
+  participants: SeatId[];
+  sameAsLast: SeatId[] | null;
+  preselected: boolean;
+  groups: SplitGroupDTO[];
 }
 
 /** Application service for the expense-ledger context. */
@@ -144,6 +161,52 @@ export class ExpenseLedgerUseCases {
         .filter((e) => e.status !== "deleted")
         .sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime())
         .map((e) => toExpenseDTO(e, ctx.actor));
+    });
+  }
+
+  /** Split presets for quick add: the smart default, "Igual que el último" and saved groups. */
+  getQuickAddDefaults(principalId: PrincipalId, tripId: TripId): Promise<Result<QuickAddDefaultsDTO>> {
+    return attempt(async () => {
+      const ctx = await this.context(principalId, tripId);
+      const [expenses, groups] = await Promise.all([
+        this.deps.expenses.listByTrip(tripId),
+        this.deps.splitGroups.listByTrip(tripId),
+      ]);
+      return { ...suggestSplit(expenses, ctx.trip, ctx.now), groups: this.groupDTOs(groups, ctx) };
+    });
+  }
+
+  saveSplitGroup(principalId: PrincipalId, tripId: TripId, input: { name: string; seatIds: SeatId[] }): Promise<Result<SplitGroupDTO>> {
+    return attempt(async () => {
+      const ctx = await this.context(principalId, tripId);
+      const existing = await this.deps.splitGroups.listByTrip(tripId);
+      const group = SplitGroup.create({ id: SplitGroupId(this.deps.ids.next()), ...input }, ctx, existing);
+      await this.deps.splitGroups.add(group);
+      return this.groupDTOs([group], ctx)[0];
+    });
+  }
+
+  deleteSplitGroup(principalId: PrincipalId, tripId: TripId, id: SplitGroupId): Promise<Result<void>> {
+    return attempt(async () => {
+      const ctx = await this.context(principalId, tripId);
+      const group = (await this.deps.splitGroups.listByTrip(tripId)).find((g) => g.id === id);
+      if (!group) throw notFound("No encontramos ese grupo");
+      group.assertCanDelete(ctx);
+      await this.deps.splitGroups.delete(tripId, id);
+    });
+  }
+
+  private groupDTOs(groups: SplitGroup[], ctx: Context): SplitGroupDTO[] {
+    return groups.flatMap((g) => {
+      const seatIds = g.activeSeats(ctx);
+      if (seatIds.length < 2) return [];
+      let canDelete = true;
+      try {
+        g.assertCanDelete(ctx);
+      } catch {
+        canDelete = false;
+      }
+      return [{ id: g.id, name: g.name, seatIds, canDelete }];
     });
   }
 }

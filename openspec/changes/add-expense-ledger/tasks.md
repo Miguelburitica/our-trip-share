@@ -22,5 +22,5 @@
 
 ## 5. Presentation
 
-- [ ] 5.1 Build the quick-add sheet (Tonal design, keypad, category chips, split picker, presets, inline warnings) calling `recordExpense`; verify by adding 184.000 COP in the browser and seeing it in Gastos
+- [x] 5.1 Build the quick-add sheet (Tonal design, keypad, category chips, split picker, inline warnings) calling `recordExpense`, with split presets: "Igual que el último", "Todos menos…" labels and saved groups (`split_groups`, `getQuickAddDefaults`, `saveSplitGroup`, `deleteSplitGroup`); verify in the browser, with `npm test`, `npm run test:db` and pgTAP
 - [x] 5.2 Build the Gastos list grouped by day showing "tu parte"; verify in the browser

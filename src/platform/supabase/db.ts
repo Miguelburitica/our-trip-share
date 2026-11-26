@@ -22,6 +22,7 @@ export function dbError(error: PostgrestError, what: string): Error {
         return new DomainError("already_claimed", "Ya tienes un lugar en este viaje");
       }
       if (/seats_name_per_trip/.test(text)) return validationError("Ya hay alguien con ese nombre");
+      if (/split_groups_name_per_trip/.test(text)) return validationError("Ya hay un grupo con ese nombre");
       if (/seats_invite_token_hash_key/.test(text)) return conflict("Intenta de nuevo");
       break;
     case "23514":
