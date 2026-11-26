@@ -165,6 +165,32 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"held_changes": {
+                  Row: {
+                    "base_version": number | null,"by_seat": string,"created_at": string,"expense_id": string,"id": string,"kind": string,"proposed": NonNullable<Json>,"trip_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "base_version"?: number | null,"by_seat": string,"created_at"?: string,"expense_id": string,"id": string,"kind": string,"proposed": NonNullable<Json>,"trip_id": string
+                  }
+                  Update: {
+                    "base_version"?: number | null,"by_seat"?: string,"created_at"?: string,"expense_id"?: string,"id"?: string,"kind"?: string,"proposed"?: NonNullable<Json>,"trip_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "held_changes_by_seat_fkey"
+      columns: ["by_seat"]
+isOneToOne: false
+      referencedRelation: "seats"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "held_changes_trip_id_fkey"
+      columns: ["trip_id"]
+isOneToOne: false
+      referencedRelation: "trips"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"payout_handles": {
                   Row: {
                     "handles": NonNullable<Json>,"seat_id": string,"trip_id": string,"updated_at": string

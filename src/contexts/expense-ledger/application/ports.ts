@@ -1,5 +1,6 @@
 import type { ExpenseId, PrincipalId, SeatId, SplitGroupId, TripId } from "@/shared-kernel/ids";
 import type { Category, Expense, ExpenseEffect } from "../domain/expense";
+import type { HeldChange } from "../domain/held-change";
 import type { ReceiptImage, ReceiptReading } from "../domain/receipt";
 import type { SplitGroup } from "../domain/split-group";
 import type { LedgerTripView } from "../domain/trip-view";
@@ -59,4 +60,17 @@ export interface ReceiptReader {
  */
 export interface FxRateProvider {
   rateFor(from: string, to: string, date: string): Promise<string | null>;
+}
+
+/** Changes waiting for an admin's approval (R14 during Liquidando). */
+export interface HeldChangeRepository {
+  add(change: HeldChange): Promise<void>;
+  get(tripId: TripId, id: string): Promise<HeldChange | null>;
+  list(tripId: TripId): Promise<HeldChange[]>;
+  delete(tripId: TripId, id: string): Promise<void>;
+}
+
+/** Answered by settlement: would this change move the balance of someone who already settled? */
+export interface ReopenCheck {
+  reopens(change: ExpenseMoneyChanged): Promise<boolean>;
 }

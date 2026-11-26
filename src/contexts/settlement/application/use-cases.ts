@@ -415,6 +415,14 @@ export class SettlementUseCases {
     });
   }
 
+  /** R14 check for the ledger: would this change move the balance of someone who already settled? */
+  wouldReopen(change: LedgerChange): Promise<Result<boolean>> {
+    return attempt(async () => {
+      const settlements = (await this.deps.settlements.listByTrip(change.tripId)).map((s) => s.toPrimitives());
+      return detectReopened(change, settlements, () => NoticeId("check")).length > 0;
+    });
+  }
+
   listMyNotices(principalId: PrincipalId, tripId: TripId): Promise<Result<NoticeDTO[]>> {
     return attempt(async () => {
       const { actor } = await this.context(principalId, tripId);

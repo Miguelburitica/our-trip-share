@@ -3,7 +3,7 @@
  * more than one context's model: each adapter implements a port owned by the
  * consuming context by reading the upstream context.
  */
-import type { LedgerEventPublisher, MembershipReader } from "@/contexts/expense-ledger/application/ports";
+import type { ExpenseMoneyChanged, HeldChangeRepository, LedgerEventPublisher, MembershipReader, ReopenCheck } from "@/contexts/expense-ledger/application/ports";
 import type { ExpenseRepository } from "@/contexts/expense-ledger/application/ports";
 import type { LedgerReader, SettlementMembershipReader } from "@/contexts/settlement/application/ports";
 import type { SettlementUseCases } from "@/contexts/settlement/application/use-cases";
@@ -86,35 +86,48 @@ export function ledgerReader(expenses: ExpenseRepository): LedgerReader {
   };
 }
 
+const toLedgerChange = (e: ExpenseMoneyChanged) => {
+  const entry = (effect: typeof e.before) => (effect ? { expenseId: e.expenseId, ...effect } : null);
+  return {
+    tripId: e.tripId,
+    cause: { kind: e.kind, expenseId: e.expenseId, title: e.title, category: e.category },
+    by: e.by,
+    at: e.at,
+    before: entry(e.before),
+    after: entry(e.after),
+  };
+};
+
+/** R14 while Liquidando: the ledger asks settlement whether a change would reopen a settled balance. */
+export function reopenCheck(settlement: SettlementUseCases): ReopenCheck {
+  return {
+    async reopens(e) {
+      const r = await settlement.wouldReopen(toLedgerChange(e));
+      if (!r.ok) throw r.error;
+      return r.value;
+    },
+  };
+}
+
 /** Ledger money changes → settlement's R14 detection. The effect shapes match LedgerEntry. */
 export function settlementListener(settlement: SettlementUseCases): LedgerEventPublisher {
   return {
     async moneyChanged(e) {
-      const entry = (effect: typeof e.before) => (effect ? { expenseId: e.expenseId, ...effect } : null);
-      const r = await settlement.recordLedgerChange({
-        tripId: e.tripId,
-        cause: { kind: e.kind, expenseId: e.expenseId, title: e.title, category: e.category },
-        by: e.by,
-        at: e.at,
-        before: entry(e.before),
-        after: entry(e.after),
-      });
+      const r = await settlement.recordLedgerChange(toLedgerChange(e));
       if (!r.ok) throw r.error;
     },
   };
 }
 
-/**
- * Closing preconditions from the ledger (drafts) and settlement (pending payments). R14 approvals
- * during Liquidando aren't built yet, so none are ever pending.
- */
-export function closeChecks(expenses: ExpenseRepository, settlement: SettlementUseCases): CloseChecks {
+/** Closing preconditions: drafts and R14 changes waiting for approval (ledger), pending payments (settlement). */
+export function closeChecks(expenses: ExpenseRepository, settlement: SettlementUseCases, held: HeldChangeRepository): CloseChecks {
   return {
     async pending(tripId: TripId) {
       const drafts = (await expenses.listByTrip(tripId)).filter((e) => e.status === "draft").length;
       const blockers = await settlement.closeBlockers(tripId);
       if (!blockers.ok) throw blockers.error;
-      return { drafts, pendingSettlements: blockers.value.pendingSettlements, pendingApprovals: 0 };
+      const pendingApprovals = (await held.list(tripId)).length;
+      return { drafts, pendingSettlements: blockers.value.pendingSettlements, pendingApprovals };
     },
   };
 }

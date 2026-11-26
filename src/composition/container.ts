@@ -1,4 +1,13 @@
-import type { ExpenseRepository, FxRateProvider, ReceiptReader, ReceiptStore, SplitGroupRepository } from "@/contexts/expense-ledger/application/ports";
+import type {
+  ExpenseRepository,
+  FxRateProvider,
+  HeldChangeRepository,
+  ReceiptReader,
+  ReceiptStore,
+  SplitGroupRepository,
+} from "@/contexts/expense-ledger/application/ports";
+import { InMemoryHeldChangeRepository } from "@/contexts/expense-ledger/infrastructure/in-memory-held-change-repository";
+import { SupabaseHeldChangeRepository } from "@/contexts/expense-ledger/infrastructure/supabase-held-change-repository";
 import { ExpenseLedgerUseCases } from "@/contexts/expense-ledger/application/use-cases";
 import { InMemoryExpenseRepository } from "@/contexts/expense-ledger/infrastructure/in-memory-expense-repository";
 import { InMemoryReceiptStore } from "@/contexts/expense-ledger/infrastructure/in-memory-receipt-store";
@@ -35,7 +44,7 @@ import { SupabaseTripRepository } from "@/contexts/trip-membership/infrastructur
 import type { Db } from "@/platform/supabase/db";
 import { systemClock, type Clock } from "@/shared-kernel/clock";
 import { uuidGenerator, type IdGenerator } from "@/shared-kernel/ids";
-import { closeChecks, ledgerMembershipReader, ledgerReader, settlementListener, settlementMembershipReader } from "./context-adapters";
+import { closeChecks, reopenCheck, ledgerMembershipReader, ledgerReader, settlementListener, settlementMembershipReader } from "./context-adapters";
 
 export interface Container {
   membership: TripMembershipUseCases;
@@ -49,6 +58,7 @@ export interface Repositories {
   expenses: ExpenseRepository & SeatUsage;
   splitGroups: SplitGroupRepository;
   receipts: ReceiptStore;
+  held: HeldChangeRepository;
   settlements: SettlementRepository & SettlementPresence & SeatUsage;
   notices: BalanceNoticeRepository;
   handles: PayoutHandleRepository;
@@ -73,7 +83,7 @@ export interface ContainerOptions {
 export function createContainer(repos: Repositories, opts: ContainerOptions = {}): Container {
   const clock = opts.clock ?? systemClock;
   const ids = opts.ids ?? uuidGenerator;
-  const { trips, expenses, splitGroups, receipts, settlements, notices, handles, snapshots, reviews, links } = repos;
+  const { trips, expenses, splitGroups, receipts, held, settlements, notices, handles, snapshots, reviews, links } = repos;
   const settlement = new SettlementUseCases({
     settlements,
     notices,
@@ -92,7 +102,7 @@ export function createContainer(repos: Repositories, opts: ContainerOptions = {}
       trips,
       tokens: hashTokenService,
       settlements,
-      closeChecks: closeChecks(expenses, settlement),
+      closeChecks: closeChecks(expenses, settlement, held),
       seatUsage: {
         isSeatUsed: async (tripId, seatId) =>
           (await expenses.isSeatUsed(tripId, seatId)) || (await settlements.isSeatUsed(tripId, seatId)),
@@ -106,6 +116,8 @@ export function createContainer(repos: Repositories, opts: ContainerOptions = {}
       receipts,
       reader: opts.reader ?? null,
       rates: opts.rates ?? null,
+      held,
+      reopenCheck: reopenCheck(settlement),
       membership: ledgerMembershipReader(trips),
       events: settlementListener(settlement),
       ids,
@@ -122,6 +134,7 @@ export function createMemoryContainer(opts: ContainerOptions = {}): Container {
       expenses: new InMemoryExpenseRepository(),
       splitGroups: new InMemorySplitGroupRepository(),
       receipts: new InMemoryReceiptStore(),
+      held: new InMemoryHeldChangeRepository(),
       settlements: new InMemorySettlementRepository(),
       notices: new InMemoryBalanceNoticeRepository(),
       handles: new InMemoryPayoutHandleRepository(),
@@ -140,6 +153,7 @@ export function createSupabaseContainer(db: Db, opts: ContainerOptions = {}): Co
       expenses: new SupabaseExpenseRepository(db),
       splitGroups: new SupabaseSplitGroupRepository(db),
       receipts: new SupabaseReceiptStore(db),
+      held: new SupabaseHeldChangeRepository(db),
       settlements: new SupabaseSettlementRepository(db),
       notices: new SupabaseBalanceNoticeRepository(db),
       handles: new SupabasePayoutHandleRepository(db),

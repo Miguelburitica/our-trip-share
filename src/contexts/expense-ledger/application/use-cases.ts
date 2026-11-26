@@ -1,10 +1,12 @@
 import type { Clock } from "@/shared-kernel/clock";
-import { forbidden, invalidState, notFound, validationError } from "@/shared-kernel/errors";
+import { conflict, forbidden, invalidState, notFound, validationError } from "@/shared-kernel/errors";
 import { isCurrencyCode } from "@/shared-kernel/money/currency";
 import { ExpenseId, SplitGroupId, type IdGenerator, type PrincipalId, type SeatId, type TripId } from "@/shared-kernel/ids";
 import { attempt, type Result } from "@/shared-kernel/result";
 import { Expense, type Category, type Context, type ExpenseEffect, type ExpenseType, type MoneyInput } from "../domain/expense";
 import type { FxInput } from "../domain/money-block";
+import type { HeldChange } from "../domain/held-change";
+import { isAdminSeat } from "../domain/trip-view";
 import { evaluateGuards, type ExpenseWarning } from "../domain/guards";
 import { SplitGroup } from "../domain/split-group";
 import { suggestSplit } from "../domain/split-suggestion";
@@ -19,7 +21,9 @@ import type {
   ExpenseMoneyChanged,
   ExpenseRepository,
   FxRateProvider,
+  HeldChangeRepository,
   LedgerEventPublisher,
+  ReopenCheck,
   MembershipReader,
   ReceiptReader,
   ReceiptStore,
@@ -37,6 +41,9 @@ export interface ExpenseLedgerDeps {
   events?: LedgerEventPublisher;
   /** Optional: daily FX rates; without it foreign-currency expenses wait for a rate ("tasa pendiente"). */
   rates?: FxRateProvider | null;
+  /** Optional: R14 approvals while Liquidando (both needed). */
+  held?: HeldChangeRepository | null;
+  reopenCheck?: ReopenCheck | null;
   ids: IdGenerator;
   clock: Clock;
 }
@@ -61,6 +68,8 @@ export interface ExpenseDTO {
   myShare: number | null;
   /** Whether I'm among the people it's split between. */
   includesMe: boolean;
+  /** Returned by a change that R14 held for approval (it isn't saved yet). */
+  held?: boolean;
   moneyVersion: number;
   createdBy: SeatId;
   receiptCount: number;
@@ -89,6 +98,33 @@ export function toExpenseDTO(expense: Expense, mySeatId: SeatId | null): Expense
     moneyVersion: expense.moneyVersion,
     createdBy: expense.createdBy,
     receiptCount: expense.toPrimitives().receiptPaths.length,
+  };
+}
+
+export interface HeldChangeDTO {
+  id: string;
+  expenseId: ExpenseId;
+  kind: HeldChange["kind"];
+  title: string | null;
+  category: Category;
+  currency: string | null;
+  amount: number | null;
+  by: SeatId;
+  at: string;
+}
+
+function toHeldChangeDTO(h: HeldChange): HeldChangeDTO {
+  const p = h.proposed;
+  return {
+    id: h.id,
+    expenseId: h.expenseId,
+    kind: h.kind,
+    title: p.title,
+    category: p.category,
+    currency: p.money?.currency ?? null,
+    amount: p.money?.amount ?? null,
+    by: h.by,
+    at: h.at.toISOString(),
   };
 }
 
@@ -146,6 +182,99 @@ export class ExpenseLedgerUseCases {
     } catch (error) {
       console.error("ledger event listener failed", error);
     }
+  }
+
+  /**
+   * Saves a money change and tells settlement, unless R14 holds it: while Liquidando, a change by
+   * a non-admin that would move a settled person's balance waits for an admin. Returns true if held.
+   */
+  private async commit(
+    kind: ExpenseMoneyChanged["kind"],
+    expense: Expense,
+    ctx: Context,
+    before: ExpenseEffect | null,
+    expectedVersion: number | null,
+  ): Promise<boolean> {
+    if (await this.mustHold(kind, expense, ctx, before)) {
+      await this.deps.held!.add({
+        id: this.deps.ids.next(),
+        tripId: expense.tripId,
+        expenseId: expense.id,
+        kind,
+        proposed: expense.toPrimitives(),
+        baseVersion: expectedVersion,
+        by: ctx.actor,
+        at: ctx.now,
+      });
+      return true;
+    }
+    await this.deps.expenses.save(expense, expectedVersion);
+    await this.publish(kind, expense, ctx, before);
+    return false;
+  }
+
+  private async mustHold(kind: ExpenseMoneyChanged["kind"], expense: Expense, ctx: Context, before: ExpenseEffect | null) {
+    if (!this.deps.held || !this.deps.reopenCheck) return false;
+    if (ctx.trip.status !== "settling" || isAdminSeat(ctx.trip, ctx.actor)) return false;
+    const after = expense.effect;
+    if (!before && !after) return false;
+    return this.deps.reopenCheck.reopens({
+      tripId: expense.tripId,
+      expenseId: expense.id,
+      kind,
+      title: expense.title,
+      category: expense.category,
+      by: ctx.actor,
+      at: ctx.now,
+      before,
+      after,
+    });
+  }
+
+  /** Changes waiting for approval: all of them for admins, your own for everyone else. */
+  listHeldChanges(principalId: PrincipalId, tripId: TripId): Promise<Result<HeldChangeDTO[]>> {
+    return attempt(async () => {
+      const ctx = await this.context(principalId, tripId);
+      if (!this.deps.held) return [];
+      const admin = isAdminSeat(ctx.trip, ctx.actor);
+      const all = await this.deps.held.list(tripId);
+      return all.filter((h) => admin || h.by === ctx.actor).map(toHeldChangeDTO);
+    });
+  }
+
+  /** An admin applies a held change, unless the expense changed since (then it's dropped). */
+  approveHeldChange(principalId: PrincipalId, tripId: TripId, id: string): Promise<Result<void>> {
+    return attempt(async () => {
+      const ctx = await this.context(principalId, tripId);
+      if (!isAdminSeat(ctx.trip, ctx.actor)) throw forbidden("Solo el organizador o un admin aprueba cambios");
+      const held = this.deps.held ? await this.deps.held.get(tripId, id) : null;
+      if (!held) throw notFound("Ese cambio ya no está pendiente");
+      const current = held.baseVersion === null ? null : await this.deps.expenses.get(held.expenseId);
+      if (held.baseVersion !== null && current?.moneyVersion !== held.baseVersion) {
+        await this.deps.held!.delete(tripId, id);
+        throw conflict("El gasto cambió mientras tanto; el cambio se descartó");
+      }
+      const proposed = Expense.fromPrimitives(held.proposed);
+      await this.deps.expenses.save(proposed, held.baseVersion);
+      await this.deps.held!.delete(tripId, id);
+      await this.publish(held.kind, proposed, { ...ctx, actor: held.by }, current?.effect ?? null);
+    });
+  }
+
+  /** An admin turns it down, or its author withdraws it. */
+  rejectHeldChange(principalId: PrincipalId, tripId: TripId, id: string): Promise<Result<void>> {
+    return attempt(async () => {
+      const ctx = await this.context(principalId, tripId);
+      const held = this.deps.held ? await this.deps.held.get(tripId, id) : null;
+      if (!held) throw notFound("Ese cambio ya no está pendiente");
+      if (held.by !== ctx.actor && !isAdminSeat(ctx.trip, ctx.actor)) throw forbidden("Solo un admin o quien lo hizo puede descartarlo");
+      await this.deps.held!.delete(tripId, id);
+    });
+  }
+
+  /** For closing: how many changes still wait for approval. */
+  async heldCount(tripId: TripId): Promise<number> {
+    return this.deps.held ? (await this.deps.held.list(tripId)).length : 0;
   }
 
   private async load(tripId: TripId, expenseId: ExpenseId): Promise<Expense> {
@@ -220,9 +349,8 @@ export class ExpenseLedgerUseCases {
       if (!fx) throw invalidState("No pudimos traer la tasa. Escribe lo que cobró la tarjeta.");
       const effect = expense.effect;
       expense.changeMoney(expectedVersion, { currency: m.currency, amount: m.amount, fx }, ctx);
-      await this.deps.expenses.save(expense, expectedVersion);
-      await this.publish("edited", expense, ctx, effect);
-      return toExpenseDTO(expense, ctx.actor);
+      const held = await this.commit("edited", expense, ctx, effect, expectedVersion);
+      return { ...toExpenseDTO(expense, ctx.actor), held };
     });
   }
 
@@ -243,9 +371,8 @@ export class ExpenseLedgerUseCases {
       const fx = input.fx ?? (await this.fetchFx(input.currency, ctx.trip.baseCurrency, input.occurredAt ?? ctx.now));
       const expense = Expense.record({ ...input, fx, id: ExpenseId(this.deps.ids.next()) }, ctx);
       const others = await this.deps.expenses.listByTrip(tripId);
-      await this.deps.expenses.save(expense, null);
-      await this.publish("created", expense, ctx, null);
-      return { expense: toExpenseDTO(expense, ctx.actor), warnings: evaluateGuards(expense, others) };
+      const held = await this.commit("created", expense, ctx, null, null);
+      return { expense: { ...toExpenseDTO(expense, ctx.actor), held }, warnings: evaluateGuards(expense, others) };
     });
   }
 
@@ -270,9 +397,8 @@ export class ExpenseLedgerUseCases {
       const before = expense.moneyVersion;
       const effect = expense.effect;
       expense.completeDraft(input, ctx);
-      await this.deps.expenses.save(expense, before);
-      await this.publish("created", expense, ctx, effect);
-      return toExpenseDTO(expense, ctx.actor);
+      const held = await this.commit("created", expense, ctx, effect, before);
+      return { ...toExpenseDTO(expense, ctx.actor), held };
     });
   }
 
@@ -289,21 +415,19 @@ export class ExpenseLedgerUseCases {
       const effect = expense.effect;
       const fx = await this.keptFx(expense, input, ctx.trip.baseCurrency);
       expense.changeMoney(expectedVersion, { ...input, fx }, ctx);
-      await this.deps.expenses.save(expense, expectedVersion);
-      await this.publish("edited", expense, ctx, effect);
-      return toExpenseDTO(expense, ctx.actor);
+      const held = await this.commit("edited", expense, ctx, effect, expectedVersion);
+      return { ...toExpenseDTO(expense, ctx.actor), held };
     });
   }
 
-  deleteExpense(principalId: PrincipalId, tripId: TripId, expenseId: ExpenseId): Promise<Result<void>> {
+  deleteExpense(principalId: PrincipalId, tripId: TripId, expenseId: ExpenseId): Promise<Result<{ held: boolean }>> {
     return attempt(async () => {
       const ctx = await this.context(principalId, tripId);
       const expense = await this.load(tripId, expenseId);
       const version = expense.moneyVersion;
       const effect = expense.effect;
       expense.delete(ctx);
-      await this.deps.expenses.save(expense, version);
-      await this.publish("deleted", expense, ctx, effect);
+      return { held: await this.commit("deleted", expense, ctx, effect, version) };
     });
   }
 
