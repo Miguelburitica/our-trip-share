@@ -3,12 +3,13 @@ import { DomainError, notFound } from "@/shared-kernel/errors";
 import { SeatId, TripId, type IdGenerator, type PrincipalId } from "@/shared-kernel/ids";
 import { attempt, type Result } from "@/shared-kernel/result";
 import { Trip, type Principal, type SettleMode } from "../domain/trip";
-import type { SeatUsage, SettlementPresence, TokenService, TripRepository } from "./ports";
+import type { CloseChecks, SeatUsage, SettlementPresence, TokenService, TripRepository } from "./ports";
 
 export interface TripMembershipDeps {
   trips: TripRepository;
   seatUsage: SeatUsage;
   settlements: SettlementPresence;
+  closeChecks: CloseChecks;
   tokens: TokenService;
   ids: IdGenerator;
   clock: Clock;
@@ -304,6 +305,21 @@ export class TripMembershipUseCases {
   startSettling(principalId: PrincipalId, tripId: TripId): Promise<Result<void>> {
     return attempt(async () => {
       await this.change(tripId, (trip) => trip.startSettling(trip.actor(principalId).id));
+    });
+  }
+
+  /** Cerrado: needs 0 drafts, 0 pending payments and 0 pending approvals; then the trip is read-only. */
+  closeTrip(principalId: PrincipalId, tripId: TripId): Promise<Result<void>> {
+    return attempt(async () => {
+      const pending = await this.deps.closeChecks.pending(tripId);
+      await this.change(tripId, (trip) => trip.close(trip.actor(principalId).id, pending));
+    });
+  }
+
+  /** Only the owner reopens a Cerrado trip, back to Liquidando with the same frozen plan. */
+  reopenTrip(principalId: PrincipalId, tripId: TripId): Promise<Result<void>> {
+    return attempt(async () => {
+      await this.change(tripId, (trip) => trip.reopen(trip.actor(principalId).id));
     });
   }
 

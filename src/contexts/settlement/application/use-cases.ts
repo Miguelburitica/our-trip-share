@@ -1,18 +1,21 @@
 import type { Clock } from "@/shared-kernel/clock";
-import { forbidden, notFound } from "@/shared-kernel/errors";
+import { forbidden, invalidState, notFound } from "@/shared-kernel/errors";
 import { NoticeId, SettlementId, type IdGenerator, type PrincipalId, type SeatId, type TripId } from "@/shared-kernel/ids";
 import { CURRENCIES } from "@/shared-kernel/money/currency";
 import { isWithinDust } from "@/shared-kernel/money/money";
 import { attempt, type Result } from "@/shared-kernel/result";
 import { detectReopened, type ChangeCause, type LedgerChange } from "../domain/balance-notice";
-import { computeBalances, overpaymentCredit } from "../domain/balances";
+import { computeBalances, ledgerBalances, overpaymentCredit } from "../domain/balances";
 import type { Transfer } from "../domain/ledger-entry";
-import { planDirect, planHub, planSimplified } from "../domain/plan";
+import { buildSettlingPlan, mergeSettlingPlan, planDirect, planHub, planSimplified } from "../domain/plan";
+import { reviewShare, type ShareReviewStatus } from "../domain/share-review";
 import { Settlement, type SettlementStatus } from "../domain/settlement";
 import { handlesVisibleTo, normalizeHandles, type PayoutHandle } from "../domain/payout-handles";
 import type {
   BalanceNoticeRepository,
   PayoutHandleRepository,
+  PlanSnapshotRepository,
+  ShareReviewRepository,
   LedgerReader,
   SettlementMembershipReader,
   SettlementRepository,
@@ -23,6 +26,8 @@ export interface SettlementDeps {
   settlements: SettlementRepository;
   notices: BalanceNoticeRepository;
   handles: PayoutHandleRepository;
+  snapshots: PlanSnapshotRepository;
+  reviews: ShareReviewRepository;
   ledger: LedgerReader;
   membership: SettlementMembershipReader;
   ids: IdGenerator;
@@ -32,9 +37,14 @@ export interface SettlementDeps {
 export interface PlannedTransfer extends Transfer {
   /** A pending settlement from → to awaiting confirmation. */
   pendingSettlementId: SettlementId | null;
+  /** Liquidando: a change after freezing moved this row off the frozen plan. */
+  adjusted: boolean;
 }
 
 export interface BalancesDTO {
+  phase: SettlementTripView["status"];
+  /** When the plan was frozen (Liquidando and Cerrado); the plan then ignores `mode`. */
+  frozenAt: string | null;
   baseCurrency: string;
   settleMode: SettlementTripView["settleMode"];
   mySeatId: SeatId;
@@ -42,6 +52,13 @@ export interface BalancesDTO {
   balances: Array<{ seatId: SeatId; balance: number; settled: boolean }>;
   plan: PlannedTransfer[];
   pending: Array<{ id: SettlementId; from: SeatId; to: SeatId; baseAmount: number }>;
+}
+
+export interface ShareReviewDTO {
+  seatId: SeatId;
+  status: ShareReviewStatus;
+  note: string | null;
+  at: string;
 }
 
 export interface NoticeDTO {
@@ -75,28 +92,116 @@ export class SettlementUseCases {
     return all;
   }
 
-  /** Balances and the plan in `mode` (default: the trip's), plus who is pending. */
+  /**
+   * Balances and the plan, plus who is pending. While Activo the plan follows `mode` (default: the
+   * trip's); from Liquidando on it is the frozen plan with its deltas (R9), whatever `mode` says.
+   */
   private async compute(tripId: TripId, trip: SettlementTripView, mode?: SettlementTripView["settleMode"]) {
     const entries = await this.deps.ledger.entries(tripId);
-    const settlements = (await this.settlementsOf(tripId)).map((s) => s.toPrimitives());
+    const all = await this.settlementsOf(tripId);
+    const settlements = all.map((s) => s.toPrimitives());
     const seatIds = trip.seats.map((s) => s.id);
     const { balances } = computeBalances(seatIds, entries, settlements);
     const dust = CURRENCIES[trip.baseCurrency].dustTolerance - 1;
-    const effectiveMode = mode ?? trip.settleMode;
-    const transfers =
-      effectiveMode === "hub" && trip.hubSeatId
+    const pending = settlements.filter((s) => s.status === "pending");
+    const livePlan = (m: SettlementTripView["settleMode"]) =>
+      m === "hub" && trip.hubSeatId
         ? planHub(balances, trip.hubSeatId, dust)
-        : effectiveMode === "direct"
+        : m === "direct"
           ? planDirect(entries, settlements)
           : planSimplified(balances, dust);
-    return { seatIds, balances, transfers, effectiveMode, pending: settlements.filter((s) => s.status === "pending") };
+
+    if (trip.status === "active") {
+      const effectiveMode = mode ?? trip.settleMode;
+      const transfers = livePlan(effectiveMode).map((t) => ({ ...t, adjusted: false }));
+      return { seatIds, balances, transfers, effectiveMode, pending, frozenAt: null };
+    }
+    // A trip that reached Liquidando without a stored plan (the freeze right after "Empezar a
+    // liquidar" failed) freezes now.
+    const snapshot =
+      (await this.deps.snapshots.get(tripId)) ??
+      (await this.deps.snapshots.saveIfAbsent(tripId, {
+        frozenAt: this.deps.clock.now(),
+        transfers: livePlan(trip.settleMode),
+        ledgerBalances: ledgerBalances(seatIds, entries),
+      }));
+    const confirmedSinceFreeze = settlements.filter(
+      (s) => s.status === "confirmed" && s.resolvedAt !== null && s.resolvedAt > snapshot.frozenAt,
+    );
+    const transfers = mergeSettlingPlan(buildSettlingPlan({ frozen: snapshot.transfers, balances, confirmedSinceFreeze, dust }));
+    return { seatIds, balances, transfers, effectiveMode: trip.settleMode, pending, frozenAt: snapshot.frozenAt };
+  }
+
+  /**
+   * Freezes the plan as it stands (R9). Called right after the trip enters Liquidando; a plan
+   * already frozen (a second call, a reopened trip) is kept.
+   */
+  freezePlan(principalId: PrincipalId, tripId: TripId): Promise<Result<void>> {
+    return attempt(async () => {
+      const { trip, actor } = await this.context(principalId, tripId);
+      if (!actor.isAdmin) throw forbidden("Solo el organizador o un admin puede empezar a liquidar");
+      if (trip.status === "active") throw invalidState("El viaje aún no está liquidando");
+      await this.compute(tripId, trip);
+    });
+  }
+
+  /** What still blocks closing, for trip-membership's close (it checks who may close). */
+  closeBlockers(tripId: TripId): Promise<Result<{ pendingSettlements: number }>> {
+    return attempt(async () => {
+      const all = await this.settlementsOf(tripId);
+      return { pendingSettlements: all.filter((s) => s.status === "pending").length };
+    });
+  }
+
+  /** "Revisa tu parte": "Todo bien" or a question, while the trip is Liquidando. */
+  reviewMyShare(
+    principalId: PrincipalId,
+    tripId: TripId,
+    input: { status: string; note?: string | null },
+  ): Promise<Result<ShareReviewDTO>> {
+    return attempt(async () => {
+      const { trip, actor } = await this.context(principalId, tripId);
+      if (trip.status !== "settling") throw invalidState("Solo se revisa la parte mientras el viaje está liquidando");
+      const review = reviewShare({ tripId, seatId: actor.seatId, ...input }, this.deps.clock.now());
+      await this.deps.reviews.set(review);
+      return { seatId: review.seatId, status: review.status, note: review.note, at: review.updatedAt.toISOString() };
+    });
+  }
+
+  getMyShareReview(principalId: PrincipalId, tripId: TripId): Promise<Result<ShareReviewDTO | null>> {
+    return attempt(async () => {
+      const { actor } = await this.context(principalId, tripId);
+      const r = await this.deps.reviews.get(tripId, actor.seatId);
+      return r ? { seatId: r.seatId, status: r.status, note: r.note, at: r.updatedAt.toISOString() } : null;
+    });
+  }
+
+  /**
+   * Everyone's answers for the trip's admins (questions included); a member gets only how many
+   * people already said "Todo bien", never what anyone asked.
+   */
+  listShareReviews(principalId: PrincipalId, tripId: TripId): Promise<Result<{ ok: number; questions: ShareReviewDTO[] }>> {
+    return attempt(async () => {
+      const { actor } = await this.context(principalId, tripId);
+      const all = await this.deps.reviews.list(tripId);
+      const ok = all.filter((r) => r.status === "ok").length;
+      const questions = actor.isAdmin
+        ? all
+            .filter((r) => r.status === "question")
+            .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+            .map((r) => ({ seatId: r.seatId, status: r.status, note: r.note, at: r.updatedAt.toISOString() }))
+        : [];
+      return { ok, questions };
+    });
   }
 
   getTripBalances(principalId: PrincipalId, tripId: TripId, mode?: SettlementTripView["settleMode"]): Promise<Result<BalancesDTO>> {
     return attempt(async () => {
       const { trip, actor } = await this.context(principalId, tripId);
-      const { seatIds, balances, transfers, effectiveMode, pending } = await this.compute(tripId, trip, mode);
+      const { seatIds, balances, transfers, effectiveMode, pending, frozenAt } = await this.compute(tripId, trip, mode);
       return {
+        phase: trip.status,
+        frozenAt: frozenAt?.toISOString() ?? null,
         baseCurrency: trip.baseCurrency,
         settleMode: effectiveMode,
         mySeatId: actor.seatId,
@@ -156,6 +261,7 @@ export class SettlementUseCases {
   ): Promise<Result<{ id: SettlementId; status: SettlementStatus; overpaymentCredit: number }>> {
     return attempt(async () => {
       const { trip, actor } = await this.context(principalId, tripId);
+      if (trip.status === "closed") throw invalidState("El viaje está cerrado");
       const currency = input.currency ?? trip.baseCurrency;
       const baseAmount = input.baseAmount ?? input.amount;
       const entries = await this.deps.ledger.entries(tripId);

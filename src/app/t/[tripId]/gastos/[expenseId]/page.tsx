@@ -28,7 +28,8 @@ export default async function DetalleGasto({ params }: { params: Promise<{ tripI
   const cur = e.currency ?? trip.baseCurrency;
   const initials = (id: string) => (trip.seats.find((s) => s.id === id)?.displayName ?? "?").slice(0, 1);
   const people = trip.seats.filter((s) => s.status === "active" && !s.awaitingApproval).map((s) => ({ id: s.id as string, name: s.id === trip.mySeatId ? "Tú" : s.displayName }));
-  const editable = e.status === "complete" && e.amount !== null && cur === trip.baseCurrency;
+  const closed = trip.status === "closed";
+  const editable = !closed && e.status === "complete" && e.amount !== null && cur === trip.baseCurrency;
 
   return (
     <main className="flex flex-col gap-6 px-5 pt-5 pb-36">
@@ -101,13 +102,18 @@ export default async function DetalleGasto({ params }: { params: Promise<{ tripI
           wasExact={e.splitMethod === "exact"}
         />
       )}
-      {!editable && e.status === "complete" && (
-        <p className="px-1 text-sm text-muted">Este gasto está en otra moneda; aún no se puede editar el reparto aquí.</p>
+      {closed ? (
+        <p className="px-1 text-sm text-muted">El viaje está cerrado: los gastos ya no se editan.</p>
+      ) : (
+        !editable &&
+        e.status === "complete" && (
+          <p className="px-1 text-sm text-muted">Este gasto está en otra moneda; aún no se puede editar el reparto aquí.</p>
+        )
       )}
 
-{e.status !== "deleted" && <DeleteExpenseButton tripId={tripId} expenseId={e.id} />}
+      {!closed && e.status !== "deleted" && <DeleteExpenseButton tripId={tripId} expenseId={e.id} />}
 
-            <section aria-label="Historial" className="flex flex-col gap-2 px-1">
+      <section aria-label="Historial" className="flex flex-col gap-2 px-1">
         <h2 className="text-sm font-semibold text-muted">Historial</h2>
         <ol className="flex flex-col gap-1.5 text-[14px]">
           {[...e.history].reverse().map((h, i) => (

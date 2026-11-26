@@ -42,6 +42,10 @@ A trip SHALL move only forward through Activo → Liquidando → Cerrado, except
 - **WHEN** the owner reopens a Cerrado trip
 - **THEN** the status becomes Liquidando
 
+#### Scenario: Admin cannot reopen
+- **WHEN** an admin who is not the owner tries to reopen a Cerrado trip
+- **THEN** the action is rejected as forbidden
+
 ### Requirement: Base currency lock
 The base currency SHALL be changeable by an owner or admin until the trip's first settlement exists, and SHALL be locked afterwards.
 

@@ -6,12 +6,22 @@ import { InMemorySplitGroupRepository } from "@/contexts/expense-ledger/infrastr
 import { SupabaseReceiptStore } from "@/contexts/expense-ledger/infrastructure/supabase-receipt-store";
 import { SupabaseExpenseRepository } from "@/contexts/expense-ledger/infrastructure/supabase-expense-repository";
 import { SupabaseSplitGroupRepository } from "@/contexts/expense-ledger/infrastructure/supabase-split-group-repository";
-import type { BalanceNoticeRepository, PayoutHandleRepository, SettlementRepository } from "@/contexts/settlement/application/ports";
+import type {
+  BalanceNoticeRepository,
+  PayoutHandleRepository,
+  PlanSnapshotRepository,
+  SettlementRepository,
+  ShareReviewRepository,
+} from "@/contexts/settlement/application/ports";
 import { SettlementUseCases } from "@/contexts/settlement/application/use-cases";
 import { InMemoryBalanceNoticeRepository } from "@/contexts/settlement/infrastructure/in-memory-balance-notice-repository";
 import { InMemoryPayoutHandleRepository } from "@/contexts/settlement/infrastructure/in-memory-payout-handle-repository";
+import { InMemoryPlanSnapshotRepository } from "@/contexts/settlement/infrastructure/in-memory-plan-snapshot-repository";
+import { InMemoryShareReviewRepository } from "@/contexts/settlement/infrastructure/in-memory-share-review-repository";
 import { InMemorySettlementRepository } from "@/contexts/settlement/infrastructure/in-memory-settlement-repository";
 import { SupabasePayoutHandleRepository } from "@/contexts/settlement/infrastructure/supabase-payout-handle-repository";
+import { SupabasePlanSnapshotRepository } from "@/contexts/settlement/infrastructure/supabase-plan-snapshot-repository";
+import { SupabaseShareReviewRepository } from "@/contexts/settlement/infrastructure/supabase-share-review-repository";
 import { SupabaseBalanceNoticeRepository } from "@/contexts/settlement/infrastructure/supabase-balance-notice-repository";
 import { SupabaseSettlementRepository } from "@/contexts/settlement/infrastructure/supabase-settlement-repository";
 import type { SeatUsage, SettlementPresence, TripRepository } from "@/contexts/trip-membership/application/ports";
@@ -22,7 +32,7 @@ import { SupabaseTripRepository } from "@/contexts/trip-membership/infrastructur
 import type { Db } from "@/platform/supabase/db";
 import { systemClock, type Clock } from "@/shared-kernel/clock";
 import { uuidGenerator, type IdGenerator } from "@/shared-kernel/ids";
-import { ledgerMembershipReader, ledgerReader, settlementListener, settlementMembershipReader } from "./context-adapters";
+import { closeChecks, ledgerMembershipReader, ledgerReader, settlementListener, settlementMembershipReader } from "./context-adapters";
 
 export interface Container {
   membership: TripMembershipUseCases;
@@ -39,6 +49,8 @@ export interface Repositories {
   settlements: SettlementRepository & SettlementPresence & SeatUsage;
   notices: BalanceNoticeRepository;
   handles: PayoutHandleRepository;
+  snapshots: PlanSnapshotRepository;
+  reviews: ShareReviewRepository;
 }
 
 export interface ContainerOptions {
@@ -55,11 +67,13 @@ export interface ContainerOptions {
 export function createContainer(repos: Repositories, opts: ContainerOptions = {}): Container {
   const clock = opts.clock ?? systemClock;
   const ids = opts.ids ?? uuidGenerator;
-  const { trips, expenses, splitGroups, receipts, settlements, notices, handles } = repos;
+  const { trips, expenses, splitGroups, receipts, settlements, notices, handles, snapshots, reviews } = repos;
   const settlement = new SettlementUseCases({
     settlements,
     notices,
     handles,
+    snapshots,
+    reviews,
     ledger: ledgerReader(expenses),
     membership: settlementMembershipReader(trips),
     ids,
@@ -71,6 +85,7 @@ export function createContainer(repos: Repositories, opts: ContainerOptions = {}
       trips,
       tokens: hashTokenService,
       settlements,
+      closeChecks: closeChecks(expenses, settlement),
       seatUsage: {
         isSeatUsed: async (tripId, seatId) =>
           (await expenses.isSeatUsed(tripId, seatId)) || (await settlements.isSeatUsed(tripId, seatId)),
@@ -102,6 +117,8 @@ export function createMemoryContainer(opts: ContainerOptions = {}): Container {
       settlements: new InMemorySettlementRepository(),
       notices: new InMemoryBalanceNoticeRepository(),
       handles: new InMemoryPayoutHandleRepository(),
+      snapshots: new InMemoryPlanSnapshotRepository(),
+      reviews: new InMemoryShareReviewRepository(),
     },
     opts,
   );
@@ -117,6 +134,8 @@ export function createSupabaseContainer(db: Db, opts: ContainerOptions = {}): Co
       settlements: new SupabaseSettlementRepository(db),
       notices: new SupabaseBalanceNoticeRepository(db),
       handles: new SupabasePayoutHandleRepository(db),
+      snapshots: new SupabasePlanSnapshotRepository(db),
+      reviews: new SupabaseShareReviewRepository(db),
     },
     opts,
   );

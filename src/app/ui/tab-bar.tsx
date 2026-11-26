@@ -39,7 +39,7 @@ function Icon({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function TabBar() {
+export function TabBar({ closed = false }: { closed?: boolean }) {
   const pathname = usePathname();
   const { tripId } = useParams<{ tripId: string }>();
   const base = `/t/${tripId}`;
@@ -70,16 +70,18 @@ export function TabBar() {
       className="fixed inset-x-0 bottom-[22px] z-20 mx-auto flex h-[68px] w-[calc(100%-32px)] max-w-[448px] items-center justify-around rounded-full bg-ink px-2.5"
     >
       {tabs.slice(0, 2).map(tab)}
-      <Link
-        href={`${base}/nuevo`}
-        aria-label="Nuevo gasto"
-        className="flex size-[52px] items-center justify-center rounded-full bg-accent text-white"
-      >
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
-          <path d="M5 12h14" />
-          <path d="M12 5v14" />
-        </svg>
-      </Link>
+      {!closed && (
+        <Link
+          href={`${base}/nuevo`}
+          aria-label="Nuevo gasto"
+          className="flex size-[52px] items-center justify-center rounded-full bg-accent text-white"
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
+            <path d="M5 12h14" />
+            <path d="M12 5v14" />
+          </svg>
+        </Link>
+      )}
       {tabs.slice(2).map(tab)}
     </nav>
   );

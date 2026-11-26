@@ -5,7 +5,7 @@ import { ExpenseId, SeatId, SettlementId, TripId } from "@/shared-kernel/ids";
 import { isWithinDust } from "@/shared-kernel/money/money";
 import { computeBalances, detectReopened, ledgerBalances, overpaymentCredit } from "./balances";
 import type { LedgerEntry } from "./ledger-entry";
-import { buildSettlingPlan, planDirect, planHub, planSimplified } from "./plan";
+import { buildSettlingPlan, mergeSettlingPlan, planDirect, planHub, planSimplified } from "./plan";
 import { Settlement } from "./settlement";
 
 const [mateo, ana, leo, caro, juli, andres] = ["mateo", "ana", "leo", "caro", "juli", "andres"].map(SeatId);
@@ -149,7 +149,7 @@ describe("Settlement plans", () => {
     const frozenLedger = ledgerBalances(everyone, cartagena);
     const frozen = planSimplified(frozenLedger);
     const current = ledgerBalances(everyone, [...cartagena, entry("taxi-2", ana, 60_000, [ana, leo])]);
-    const result = buildSettlingPlan({ frozen, frozenLedgerBalances: frozenLedger, currentLedgerBalances: current, confirmedSinceFreeze: [] });
+    const result = buildSettlingPlan({ frozen, balances: current, confirmedSinceFreeze: [] });
     expect(result.frozen).toEqual(frozen);
     expect(result.deltas).toEqual([{ from: leo, to: ana, amount: 30_000 }]);
   });
@@ -158,9 +158,41 @@ describe("Settlement plans", () => {
     const frozenLedger = ledgerBalances(everyone, cartagena);
     const frozen = planSimplified(frozenLedger);
     const paid = pay(leo, mateo, 653_000, mateo);
-    const result = buildSettlingPlan({ frozen, frozenLedgerBalances: frozenLedger, currentLedgerBalances: frozenLedger, confirmedSinceFreeze: [paid] });
+    const { balances } = computeBalances(everyone, cartagena, [paid.toPrimitives()]);
+    const result = buildSettlingPlan({ frozen, balances, confirmedSinceFreeze: [paid.toPrimitives()] });
     expect(result.frozen.find((t) => t.from === leo)).toBeUndefined();
     expect(result.frozen).toHaveLength(4);
+    expect(result.deltas).toEqual([]);
+  });
+
+  it("a payment off the frozen plan becomes a delta instead of disappearing", () => {
+    const frozenLedger = ledgerBalances(everyone, cartagena);
+    const frozen = planSimplified(frozenLedger);
+    // Leo pays Juli directly, which no frozen row covers.
+    const paid = pay(leo, juli, 100_000, juli);
+    const { balances } = computeBalances(everyone, cartagena, [paid.toPrimitives()]);
+    const result = buildSettlingPlan({ frozen, balances, confirmedSinceFreeze: [paid.toPrimitives()] });
+    expect(result.frozen).toEqual(frozen);
+    expect(result.deltas).toEqual([{ from: juli, to: leo, amount: 100_000 }]);
+  });
+
+  it("merges deltas into the frozen rows they touch", () => {
+    const rows = mergeSettlingPlan({
+      frozen: [
+        { from: leo, to: mateo, amount: 50_000 },
+        { from: juli, to: ana, amount: 20_000 },
+      ],
+      deltas: [
+        { from: leo, to: mateo, amount: 10_000 },
+        { from: ana, to: juli, amount: 30_000 },
+        { from: caro, to: ana, amount: 5_000 },
+      ],
+    });
+    expect(rows).toEqual([
+      { from: leo, to: mateo, amount: 60_000, adjusted: true },
+      { from: ana, to: juli, amount: 10_000, adjusted: true },
+      { from: caro, to: ana, amount: 5_000, adjusted: true },
+    ]);
   });
 });
 

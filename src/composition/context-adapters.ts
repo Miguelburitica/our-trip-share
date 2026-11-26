@@ -8,7 +8,7 @@ import type { ExpenseRepository } from "@/contexts/expense-ledger/application/po
 import type { LedgerReader, SettlementMembershipReader } from "@/contexts/settlement/application/ports";
 import type { SettlementUseCases } from "@/contexts/settlement/application/use-cases";
 import type { LedgerEntry } from "@/contexts/settlement/domain/ledger-entry";
-import type { TripRepository } from "@/contexts/trip-membership/application/ports";
+import type { CloseChecks, TripRepository } from "@/contexts/trip-membership/application/ports";
 import type { PrincipalId, TripId } from "@/shared-kernel/ids";
 
 export function ledgerMembershipReader(trips: TripRepository): MembershipReader {
@@ -91,6 +91,21 @@ export function settlementListener(settlement: SettlementUseCases): LedgerEventP
         after: entry(e.after),
       });
       if (!r.ok) throw r.error;
+    },
+  };
+}
+
+/**
+ * Closing preconditions from the ledger (drafts) and settlement (pending payments). R14 approvals
+ * during Liquidando aren't built yet, so none are ever pending.
+ */
+export function closeChecks(expenses: ExpenseRepository, settlement: SettlementUseCases): CloseChecks {
+  return {
+    async pending(tripId: TripId) {
+      const drafts = (await expenses.listByTrip(tripId)).filter((e) => e.status === "draft").length;
+      const blockers = await settlement.closeBlockers(tripId);
+      if (!blockers.ok) throw blockers.error;
+      return { drafts, pendingSettlements: blockers.value.pendingSettlements, pendingApprovals: 0 };
     },
   };
 }

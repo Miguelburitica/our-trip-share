@@ -281,6 +281,32 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"share_reviews": {
+                  Row: {
+                    "note": string | null,"seat_id": string,"status": string,"trip_id": string,"updated_at": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "note"?: string | null,"seat_id": string,"status": string,"trip_id": string,"updated_at"?: string
+                  }
+                  Update: {
+                    "note"?: string | null,"seat_id"?: string,"status"?: string,"trip_id"?: string,"updated_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "share_reviews_seat_id_fkey"
+      columns: ["seat_id"]
+isOneToOne: true
+      referencedRelation: "seats"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "share_reviews_trip_id_fkey"
+      columns: ["trip_id"]
+isOneToOne: false
+      referencedRelation: "trips"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"split_groups": {
                   Row: {
                     "created_at": string,"created_by": string,"id": string,"name": string,"seat_ids": (string)[],"trip_id": string
@@ -343,6 +369,9 @@ isOneToOne: false
 { Args: { "p_token": string }; Returns: {
               "seat_id": string,"trip_id": string
             }[]
+                           },
+"cleanup_abandoned_guests":
+{ Args: { "p_older_than"?: string }; Returns: number
                            },
 "create_trip":
 { Args: { "p_base_currency": string,"p_display_name": string,"p_end_date"?: string,"p_name": string,"p_people"?: (string)[],"p_start_date"?: string }; Returns: string

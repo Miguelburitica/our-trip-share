@@ -17,6 +17,7 @@
 - [x] 3.1 Define the `TripRepository`, `SeatUsage` and `SettlementPresence` ports and add in-memory adapters; verify with use-case tests
 - [x] 3.2 Implement the use cases `createTrip`, `getTrip`, `claimSeatWithPersonalLink`, `requestClaim`, `approveClaim`, `startSettling`; verify with Vitest using in-memory adapters
 - [x] 3.3 Implement the Supabase `TripRepository` adapter (`save_trip` compare-and-set on `trips.version`, retry on conflict in the use cases); verify against the local stack with `npm run test:db`
+- [x] 3.4 Implement `closeTrip` (preconditions read through a `CloseChecks` port: drafts from the ledger, pending payments from settlement; approvals are always 0 until R14 approvals exist) and `reopenTrip`; verify with Vitest
 
 ## 4. Database
 

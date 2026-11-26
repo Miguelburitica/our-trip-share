@@ -191,6 +191,26 @@ describe.skipIf(!url || !secret)("Supabase repositories (local stack)", () => {
     expect(after.ok && after.value.groups).toEqual([]);
   });
 
+  it("freezes the plan once and stores \"Revisa tu parte\" answers", async () => {
+    expect((await c.membership.startSettling(mateo.id, tripId)).ok).toBe(true);
+    expect((await c.settlement.freezePlan(mateo.id, tripId)).ok).toBe(true);
+    const first = await c.settlement.getTripBalances(mateo.id, tripId);
+    if (!first.ok) throw first.error;
+    expect(first.value.phase).toBe("settling");
+    // A second freeze keeps the stored plan.
+    expect((await c.settlement.freezePlan(mateo.id, tripId)).ok).toBe(true);
+    const again = await c.settlement.getTripBalances(mateo.id, tripId);
+    expect(again.ok && again.value.frozenAt).toBe(first.value.frozenAt);
+    expect(again.ok && again.value.plan).toEqual(first.value.plan);
+
+    await c.settlement.reviewMyShare(mateo.id, tripId, { status: "question", note: "¿Y el taxi?" });
+    const mine = await c.settlement.getMyShareReview(mateo.id, tripId);
+    expect(mine.ok && mine.value).toMatchObject({ status: "question", note: "¿Y el taxi?" });
+    await c.settlement.reviewMyShare(mateo.id, tripId, { status: "ok" });
+    const all = await c.settlement.listShareReviews(mateo.id, tripId);
+    expect(all.ok && all.value).toEqual({ ok: 1, questions: [] });
+  });
+
   it.skipIf(!publishable)("keeps every row behind RLS for a client without a session", async () => {
     const anon = createClient<Database>(url!, publishable!, { auth: { persistSession: false } });
     const [trips, expenses] = await Promise.all([

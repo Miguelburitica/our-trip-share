@@ -2,14 +2,18 @@ import Link from "next/link";
 import { dayKey, expenseTitle, fmt } from "@/app/ui/money";
 import { dismissNoticeAction } from "./actions";
 import { loadTrip } from "./data";
+import { ReviewCard } from "./review-card";
+
+const PHASE = { active: "", settling: "Liquidando", closed: "Cerrado" } as const;
 
 export default async function Inicio({ params }: { params: Promise<{ tripId: string }> }) {
   const { tripId: raw } = await params;
   const { c, principal, tripId, trip, nameOf } = await loadTrip(raw);
-  const [balances, expenses, notices] = await Promise.all([
+  const [balances, expenses, notices, review] = await Promise.all([
     c.settlement.getTripBalances(principal, tripId),
     c.ledger.listTripExpenses(principal, tripId),
     c.settlement.listMyNotices(principal, tripId),
+    trip.status === "settling" ? c.settlement.getMyShareReview(principal, tripId) : null,
   ]);
   if (!balances.ok || !expenses.ok || !notices.ok) throw new Error("No pudimos cargar el viaje");
   const b = balances.value;
@@ -26,13 +30,31 @@ export default async function Inicio({ params }: { params: Promise<{ tripId: str
   const lastDay = expenses.value[0] ? dayKey(expenses.value[0].occurredAt) : null;
   const latest = expenses.value.filter((e) => e.status === "complete" && dayKey(e.occurredAt) === lastDay).slice(0, 3);
   const base = `/t/${tripId}`;
+  // "Revisa tu parte" until they say "Todo bien" (a question keeps it open).
+  const myReview = review?.ok ? review.value : null;
+  const reviewing = trip.status === "settling" && myReview?.status !== "ok";
+  const myItems = expenses.value
+    .filter((e) => e.status === "complete" && e.myShare !== null && e.myShare !== 0)
+    .map((e) => ({ id: e.id as string, title: expenseTitle(e), share: e.type === "money_received" ? -e.myShare! : e.myShare! }));
 
   return (
     <main className="flex flex-col gap-8 px-5 pt-14 pb-36">
       <header className="px-1">
         <h1 className="text-[22px] font-bold tracking-tight">{trip.name}</h1>
-        <p className="text-sm text-muted">{trip.seats.filter((s) => !s.awaitingApproval).length} personas</p>
+        <p className="text-sm text-muted">
+          {[`${trip.seats.filter((s) => !s.awaitingApproval).length} personas`, PHASE[trip.status]].filter(Boolean).join(" · ")}
+        </p>
       </header>
+
+      {reviewing && (
+        <ReviewCard
+          tripId={tripId}
+          currency={b.baseCurrency}
+          total={myItems.reduce((sum, i) => sum + i.share, 0)}
+          items={myItems}
+          question={myReview?.status === "question" ? myReview.note : null}
+        />
+      )}
 
       <section aria-label="Tu saldo" className="flex flex-col gap-5 rounded-[28px] bg-tint px-6 py-7">
         <div className="flex flex-col gap-1.5">

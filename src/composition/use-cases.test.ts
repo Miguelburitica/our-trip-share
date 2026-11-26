@@ -26,7 +26,7 @@ describe("Use cases wired through the composition root", () => {
     if (!r.ok) throw r.error;
     expect(r.value.myBalance).toBe(1_687_000);
     expect(r.value.plan).toHaveLength(5);
-    expect(r.value.plan).toContainEqual({ from: seat("Juli"), to: seat("Mateo"), amount: 641_000, pendingSettlementId: null });
+    expect(r.value.plan).toContainEqual({ from: seat("Juli"), to: seat("Mateo"), amount: 641_000, pendingSettlementId: null, adjusted: false });
   });
 
   it("lets a guest join with a personal link and record a pending payment", async () => {
@@ -303,6 +303,101 @@ describe("Use cases wired through the composition root", () => {
   });
 });
 
+describe("Liquidando and Cerrado", () => {
+  const joinJuli = async (c: Awaited<ReturnType<typeof setup>>["c"], tripId: Awaited<ReturnType<typeof setup>>["tripId"], juliSeat: SeatId) => {
+    const invite = await c.membership.issueInvite(DEMO_PRINCIPAL, tripId, juliSeat);
+    if (!invite.ok) throw invite.error;
+    const juli = PrincipalId("guest-juli");
+    await c.membership.claimWithInvite(tripId, invite.value.token, { id: juli, kind: "guest" });
+    return juli;
+  };
+
+  it("freezes the plan and only adds adjustments for later changes (R9)", async () => {
+    const { c, tripId, seat } = await setup();
+    const before = await c.settlement.getTripBalances(DEMO_PRINCIPAL, tripId);
+    if (!before.ok) throw before.error;
+    expect(before.value).toMatchObject({ phase: "active", frozenAt: null });
+
+    expect((await c.membership.startSettling(DEMO_PRINCIPAL, tripId)).ok).toBe(true);
+    expect((await c.settlement.freezePlan(DEMO_PRINCIPAL, tripId)).ok).toBe(true);
+    await c.ledger.recordExpense(DEMO_PRINCIPAL, tripId, {
+      currency: "COP",
+      amount: 60_000,
+      title: "Taxi",
+      payers: [{ seatId: seat("Ana") }],
+      split: { method: "equal", participants: [seat("Ana"), seat("Leo")] },
+    });
+
+    // The mode switch no longer changes anything once frozen.
+    const after = await c.settlement.getTripBalances(DEMO_PRINCIPAL, tripId, "direct");
+    if (!after.ok) throw after.error;
+    expect(after.value.phase).toBe("settling");
+    expect(after.value.frozenAt).not.toBeNull();
+    expect(after.value.plan.filter((t) => !t.adjusted)).toEqual(before.value.plan);
+    expect(after.value.plan.filter((t) => t.adjusted)).toEqual([
+      { from: seat("Leo"), to: seat("Ana"), amount: 30_000, adjusted: true, pendingSettlementId: null },
+    ]);
+  });
+
+  it("freezes on the first read when the freeze after starting was missed", async () => {
+    const { c, tripId } = await setup();
+    await c.membership.startSettling(DEMO_PRINCIPAL, tripId);
+    const r = await c.settlement.getTripBalances(DEMO_PRINCIPAL, tripId);
+    expect(r.ok && r.value.frozenAt).toBe("2026-11-23T01:00:00.000Z");
+  });
+
+  it("closes only with no pending payments, then is read-only until the owner reopens", async () => {
+    const { c, tripId, seat } = await setup();
+    const juli = await joinJuli(c, tripId, seat("Juli"));
+    expect((await c.membership.startSettling(juli, tripId)).ok).toBe(false);
+    await c.membership.startSettling(DEMO_PRINCIPAL, tripId);
+    const paid = await c.settlement.recordSettlement(juli, tripId, { from: seat("Juli"), to: seat("Mateo"), amount: 641_000, method: "nequi" });
+    if (!paid.ok) throw paid.error;
+
+    const blocked = await c.membership.closeTrip(DEMO_PRINCIPAL, tripId);
+    expect(!blocked.ok && blocked.error).toMatchObject({ code: "invalid_state", details: { pendingSettlements: 1 } });
+
+    await c.settlement.confirmSettlement(DEMO_PRINCIPAL, tripId, paid.value.id);
+    expect((await c.membership.closeTrip(juli, tripId)).ok).toBe(false);
+    expect((await c.membership.closeTrip(DEMO_PRINCIPAL, tripId)).ok).toBe(true);
+
+    const expense = await c.ledger.recordExpense(juli, tripId, { currency: "COP", amount: 10_000 });
+    expect(!expense.ok && expense.error.code).toBe("invalid_state");
+    const payment = await c.settlement.recordSettlement(DEMO_PRINCIPAL, tripId, { from: seat("Leo"), to: seat("Mateo"), amount: 1_000, method: "cash" });
+    expect(!payment.ok && payment.error.code).toBe("invalid_state");
+    const closed = await c.settlement.getTripBalances(juli, tripId);
+    expect(closed.ok && closed.value.phase).toBe("closed");
+
+    expect((await c.membership.reopenTrip(juli, tripId)).ok).toBe(false);
+    expect((await c.membership.reopenTrip(DEMO_PRINCIPAL, tripId)).ok).toBe(true);
+    const reopened = await c.membership.getTrip(DEMO_PRINCIPAL, tripId);
+    expect(reopened.ok && reopened.value.status).toBe("settling");
+  });
+
+  it("keeps questions from \"Revisa tu parte\" between the person and the admins", async () => {
+    const { c, tripId, seat } = await setup();
+    const juli = await joinJuli(c, tripId, seat("Juli"));
+    const early = await c.settlement.reviewMyShare(juli, tripId, { status: "ok" });
+    expect(!early.ok && early.error.code).toBe("invalid_state");
+
+    await c.membership.startSettling(DEMO_PRINCIPAL, tripId);
+    const empty = await c.settlement.reviewMyShare(juli, tripId, { status: "question", note: "  " });
+    expect(!empty.ok && empty.error.code).toBe("validation");
+    await c.settlement.reviewMyShare(juli, tripId, { status: "question", note: "¿La lancha era para todos?" });
+    await c.settlement.reviewMyShare(DEMO_PRINCIPAL, tripId, { status: "ok" });
+
+    const admin = await c.settlement.listShareReviews(DEMO_PRINCIPAL, tripId);
+    expect(admin.ok && admin.value).toEqual({
+      ok: 1,
+      questions: [expect.objectContaining({ seatId: seat("Juli"), note: "¿La lancha era para todos?" })],
+    });
+    const member = await c.settlement.listShareReviews(juli, tripId);
+    expect(member.ok && member.value).toEqual({ ok: 1, questions: [] });
+    const mine = await c.settlement.getMyShareReview(juli, tripId);
+    expect(mine.ok && mine.value?.status).toBe("question");
+  });
+});
+
 describe("Concurrent trip writes", () => {
   /** A repository whose first `failures` saves lose a race, like save_trip's version check. */
   class RacyTrips extends InMemoryTripRepository {
@@ -319,6 +414,7 @@ describe("Concurrent trip writes", () => {
       tokens: hashTokenService,
       settlements: { hasSettlements: async () => false },
       seatUsage: { isSeatUsed: async () => false },
+      closeChecks: { pending: async () => ({ drafts: 0, pendingSettlements: 0, pendingApprovals: 0 }) },
       ids: sequentialIds("r"),
       clock: fixedClock("2026-11-22T20:00:00-05:00"),
     });

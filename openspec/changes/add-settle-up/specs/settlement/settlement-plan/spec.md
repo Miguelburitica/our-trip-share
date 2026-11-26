@@ -48,3 +48,26 @@ When the trip enters Liquidando, the current plan SHALL be frozen. Later balance
 #### Scenario: Expense added while settling
 - **WHEN** the plan is frozen and a 60.000 COP taxi paid by Ana is added, split between Ana and Leo
 - **THEN** the frozen transfers are unchanged and a delta transfer Leo → Ana 30.000 is added
+
+#### Scenario: Payment that matches no frozen transfer
+- **WHEN** the plan is frozen and Leo pays Juli 100.000 directly, which no frozen transfer covers
+- **THEN** the frozen transfers are unchanged and a delta transfer Juli → Leo 100.000 is added
+
+#### Scenario: The mode switch is gone while frozen
+- **WHEN** the trip is Liquidando or Cerrado
+- **THEN** the plan shown is the frozen plan with its deltas, whatever mode is asked for
+
+### Requirement: Revisa tu parte
+While a trip is Liquidando, each member SHALL be able to answer "Todo bien" or ask a question about their share. A question SHALL be visible only to its author and the trip's owner and admins; other members SHALL see only how many people answered "Todo bien".
+
+#### Scenario: Juli asks a question
+- **WHEN** Juli asks "¿La lancha era para todos?" while the trip is Liquidando
+- **THEN** Mateo (owner) sees the question in Cuentas, and Ana (member) sees none
+
+#### Scenario: Reviewing before settling
+- **WHEN** someone answers while the trip is still Activo
+- **THEN** the answer is rejected
+
+#### Scenario: Open questions warn before closing
+- **WHEN** an admin closes a trip with 1 open question
+- **THEN** the confirmation warns about it, and closing is still allowed

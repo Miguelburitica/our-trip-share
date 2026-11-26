@@ -87,14 +87,30 @@ export function planDirect(entries: readonly LedgerEntry[], settlements: readonl
   return transfers.sort((x, y) => y.amount - x.amount || (x.from < y.from ? -1 : 1));
 }
 
+/** What entering Liquidando froze (R9): the plan and the ledger-only balances at that moment. */
+export interface PlanSnapshot {
+  readonly frozenAt: Date;
+  readonly transfers: readonly Transfer[];
+  readonly ledgerBalances: Balances;
+}
+
+/** A row of the plan while Liquidando; `adjusted` when later changes moved it off the frozen plan. */
+export interface SettlingTransfer extends Transfer {
+  readonly adjusted: boolean;
+}
+
 /**
- * Plan while Liquidando: the frozen transfers stay as they were (minus confirmed
- * payments made since freezing) and only ledger changes since then add deltas.
+ * Plan while Liquidando: the frozen transfers stay as they were, minus confirmed payments made
+ * since freezing, and whatever else moved the balances since then (a new expense, a payment that
+ * didn't match a frozen row, a reversal) becomes delta transfers for the people it affects.
+ *
+ * `balances` are the current balances (ledger plus confirmed settlements). The deltas are the
+ * simplified plan of what would remain after paying the rest of the frozen transfers, so paying
+ * every row always leaves everyone at zero.
  */
 export function buildSettlingPlan(input: {
   frozen: readonly Transfer[];
-  frozenLedgerBalances: Balances;
-  currentLedgerBalances: Balances;
+  balances: Balances;
   confirmedSinceFreeze: readonly SettlementLike[];
   dust?: number;
 }): { frozen: Transfer[]; deltas: Transfer[] } {
@@ -104,16 +120,46 @@ export function buildSettlingPlan(input: {
     const key = `${s.from}|${s.to}`;
     paid.set(key, (paid.get(key) ?? 0) + s.baseAmount);
   }
-  const frozen = input.frozen.map((t) => {
-    const key = `${t.from}|${t.to}`;
-    const covered = Math.min(paid.get(key) ?? 0, t.amount);
-    paid.set(key, (paid.get(key) ?? 0) - covered);
-    return { ...t, amount: t.amount - covered };
-  });
-  const diff: Balances = new Map();
-  const seats = new Set([...input.frozenLedgerBalances.keys(), ...input.currentLedgerBalances.keys()]);
-  for (const seat of seats) {
-    diff.set(seat, (input.currentLedgerBalances.get(seat) ?? 0) - (input.frozenLedgerBalances.get(seat) ?? 0));
+  const frozen = input.frozen
+    .map((t) => {
+      const key = `${t.from}|${t.to}`;
+      const covered = Math.min(paid.get(key) ?? 0, t.amount);
+      paid.set(key, (paid.get(key) ?? 0) - covered);
+      return { ...t, amount: t.amount - covered };
+    })
+    .filter((t) => t.amount > 0);
+  const residual: Balances = new Map(input.balances);
+  for (const t of frozen) {
+    residual.set(t.from, (residual.get(t.from) ?? 0) + t.amount);
+    residual.set(t.to, (residual.get(t.to) ?? 0) - t.amount);
   }
-  return { frozen: frozen.filter((t) => t.amount > 0), deltas: planSimplified(diff, input.dust ?? 0) };
+  return { frozen, deltas: planSimplified(residual, input.dust ?? 0) };
+}
+
+/**
+ * One row per pair for display: a delta on a frozen pair is added to it, a delta the other way
+ * nets against it. Rows a delta touched are marked `adjusted`.
+ */
+export function mergeSettlingPlan(plan: { frozen: readonly Transfer[]; deltas: readonly Transfer[] }): SettlingTransfer[] {
+  const rows: Array<{ from: SeatId; to: SeatId; amount: number; adjusted: boolean }> = plan.frozen.map((t) => ({
+    ...t,
+    adjusted: false,
+  }));
+  for (const d of plan.deltas) {
+    const same = rows.find((r) => r.from === d.from && r.to === d.to);
+    const opposite = rows.find((r) => r.from === d.to && r.to === d.from);
+    if (same) {
+      same.amount += d.amount;
+      same.adjusted = true;
+    } else if (opposite) {
+      opposite.amount -= d.amount;
+      opposite.adjusted = true;
+      if (opposite.amount < 0) {
+        Object.assign(opposite, { from: opposite.to, to: opposite.from, amount: -opposite.amount });
+      }
+    } else {
+      rows.push({ ...d, adjusted: true });
+    }
+  }
+  return rows.filter((r) => r.amount > 0);
 }

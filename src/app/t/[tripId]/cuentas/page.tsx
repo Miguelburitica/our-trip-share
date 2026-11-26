@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { fmt } from "@/app/ui/money";
 import { loadTrip } from "../data";
+import { CloseTrip, ReopenTrip, StartSettling } from "./lifecycle";
 import { TransferRow } from "./transfer-sheet";
+
+const day = new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", timeZone: "America/Bogota" });
 
 const MODES = [
   { id: "simplified", label: "Simplificado", hint: "Las menos transferencias posibles." },
@@ -39,6 +42,27 @@ export default async function Cuentas({
   const looseRows = b.pending
     .filter((p) => (p.from === b.mySeatId || p.to === b.mySeatId) && !b.plan.some((t) => t.pendingSettlementId === p.id))
     .map((p) => ({ from: p.from, to: p.to, amount: p.baseAmount, pendingSettlementId: p.id, pendingAmount: p.baseAmount }));
+  const me = trip.seats.find((s) => s.id === trip.mySeatId);
+  const canManage = me?.role === "owner" || me?.role === "admin";
+  const active = b.phase === "active";
+  const closed = b.phase === "closed";
+  const people = trip.seats.filter((s) => !s.awaitingApproval).length;
+  const [reviews, expenses] = await Promise.all([
+    b.phase === "settling" ? c.settlement.listShareReviews(principal, tripId) : null,
+    b.phase === "settling" && canManage ? c.ledger.listTripExpenses(principal, tripId) : null,
+  ]);
+  const questions = reviews?.ok ? reviews.value.questions : [];
+  const reviewedOk = reviews?.ok ? reviews.value.ok : 0;
+  const drafts = expenses?.ok ? expenses.value.filter((e) => e.status === "draft").length : 0;
+  // Closing needs these at zero (the domain checks again); the rest only warn.
+  const blockers = [
+    drafts > 0 && (drafts === 1 ? "1 recibo sin monto" : `${drafts} recibos sin monto`),
+    b.pending.length > 0 && (b.pending.length === 1 ? "1 pago por confirmar" : `${b.pending.length} pagos por confirmar`),
+  ].filter((x): x is string => Boolean(x));
+  const warnings = [
+    b.plan.length > 0 && (b.plan.length === 1 ? "Aún falta 1 pago del plan." : `Aún faltan ${b.plan.length} pagos del plan.`),
+    questions.length > 0 && (questions.length === 1 ? "Hay 1 pregunta sin resolver." : `Hay ${questions.length} preguntas sin resolver.`),
+  ].filter((x): x is string => Boolean(x));
   const openKey = b.plan.find((t) => (t.from === b.mySeatId && t.to === abrir) || (t.to === b.mySeatId && t.from === abrir));
 
   return (
@@ -57,27 +81,46 @@ export default async function Cuentas({
         </p>
       </header>
 
-      <div className="flex flex-col gap-2.5">
-        <nav aria-label="Cómo saldar" className="grid grid-cols-3 gap-1 rounded-full bg-tint p-1">
-          {MODES.map((m) => (
-            <Link
-              key={m.id}
-              href={`/t/${tripId}/cuentas?modo=${m.id}`}
-              aria-current={m.id === mode ? "page" : undefined}
-              className={`flex min-h-[42px] items-center justify-center rounded-full text-[13px] font-semibold ${m.id === mode ? "bg-surface shadow-card" : "text-muted"}`}
-            >
-              {m.label}
-            </Link>
-          ))}
-        </nav>
-        <p className="px-2 text-sm text-muted">
-          {current.hint}
-          {mode === "hub" && !trip.hubSeatId && " Elige quién recibe en Viaje › Ajustes."}
-        </p>
-      </div>
+      {!active && (
+        <section aria-label="Estado del viaje" className="flex flex-col gap-1 rounded-[28px] bg-tint px-5 py-4.5">
+          <p className="text-[15px] font-semibold">
+            {closed ? "Viaje cerrado" : "Liquidando"}
+            {b.frozenAt && <span className="font-normal text-muted"> · plan fijo desde el {day.format(new Date(b.frozenAt))}</span>}
+          </p>
+          <p className="text-sm text-ink-2">
+            {closed
+              ? "Ya no se agregan gastos ni pagos."
+              : `${reviewedOk} de ${people} revisaron su parte. Los cambios desde que se congeló salen como ajustes.`}
+          </p>
+        </section>
+      )}
+
+      {active && (
+        <div className="flex flex-col gap-2.5">
+          <nav aria-label="Cómo saldar" className="grid grid-cols-3 gap-1 rounded-full bg-tint p-1">
+            {MODES.map((m) => (
+              <Link
+                key={m.id}
+                href={`/t/${tripId}/cuentas?modo=${m.id}`}
+                aria-current={m.id === mode ? "page" : undefined}
+                className={`flex min-h-[42px] items-center justify-center rounded-full text-[13px] font-semibold ${m.id === mode ? "bg-surface shadow-card" : "text-muted"}`}
+              >
+                {m.label}
+              </Link>
+            ))}
+          </nav>
+          <p className="px-2 text-sm text-muted">
+            {current.hint}
+            {mode === "hub" && !trip.hubSeatId && " Elige quién recibe en Viaje › Ajustes."}
+          </p>
+        </div>
+      )}
 
       <section aria-label="Plan de pagos" className="flex flex-col gap-2.5">
-        <h2 className="px-1 text-sm font-semibold text-muted">{b.plan.length} transferencias</h2>
+        <h2 className="px-1 text-sm font-semibold text-muted">
+          {b.plan.length === 1 ? "1 transferencia" : `${b.plan.length} transferencias`}
+          {closed && b.plan.length > 0 && " sin hacer"}
+        </h2>
         <ul className="rounded-3xl bg-surface px-4.5 py-1 shadow-card">
           {b.plan.map((t) => (
             <TransferRow
@@ -91,6 +134,7 @@ export default async function Cuentas({
               myHandles={myHandles}
               theirHandles={handlesOf(t.to)}
               initiallyOpen={t === openKey}
+              readOnly={closed}
             />
           ))}
           {b.plan.length === 0 && <li className="py-4 text-muted">Todos están a paz y salvo.</li>}
@@ -138,6 +182,51 @@ export default async function Cuentas({
             </div>
           ))}
       </section>
+
+      {canManage && questions.length > 0 && (
+        <section aria-label="Preguntas" className="flex flex-col gap-2.5">
+          <h2 className="px-1 text-[15px] font-semibold">Preguntas sobre su parte</h2>
+          <ul className="flex flex-col gap-2">
+            {questions.map((q) => (
+              <li key={q.seatId} className="flex flex-col gap-1 rounded-[22px] bg-surface px-4.5 py-4 shadow-card">
+                <span className="text-[13px] font-semibold text-muted">{nameOf(q.seatId)}</span>
+                <span className="text-[15px]">{q.note}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="px-1 text-[13px] text-muted">Respóndeles por el chat del viaje. Cuando les quede claro, marcan “Todo bien”.</p>
+        </section>
+      )}
+
+      {canManage && active && (
+        <section aria-label="Liquidar" className="flex flex-col gap-3 pt-2">
+          <div className="flex flex-col gap-1 px-1">
+            <h2 className="text-[15px] font-semibold">¿Ya volvieron?</h2>
+            <p className="text-sm text-muted">Cuando estén todos los gastos, congela el plan para que cada uno sepa a quién pagarle.</p>
+          </div>
+          <StartSettling tripId={tripId} />
+        </section>
+      )}
+
+      {canManage && b.phase === "settling" && (
+        <section aria-label="Cerrar" className="flex flex-col gap-3 pt-2">
+          <div className="flex flex-col gap-1 px-1">
+            <h2 className="text-[15px] font-semibold">Cerrar el viaje</h2>
+            <p className="text-sm text-muted">
+              {blockers.length
+                ? `Para cerrar falta resolver: ${new Intl.ListFormat("es", { type: "conjunction" }).format(blockers)}.`
+                : "Cuando todos hayan pagado, cierra el viaje para dejarlo solo de lectura."}
+            </p>
+          </div>
+          {blockers.length === 0 && <CloseTrip tripId={tripId} warnings={warnings} />}
+        </section>
+      )}
+
+      {closed && me?.role === "owner" && (
+        <section aria-label="Reabrir" className="pt-2">
+          <ReopenTrip tripId={tripId} />
+        </section>
+      )}
     </main>
   );
 }

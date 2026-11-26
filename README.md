@@ -27,6 +27,8 @@ npm run dev
 ```
 Create a trip, then in Viaje either tap "Invitar" on a person (personal link) or "Crear enlace y QR" (one link for the group, with approvals). Open a link in a private window to join as that person. "Reenviar" moves a seat to a new phone. Sign-in codes arrive in Mailpit.
 
+When the trip is over, an admin taps "Empezar a liquidar" in Cuentas: the plan freezes, everyone gets "Revisa tu parte" on Inicio, and later changes show up as "ajuste" rows. "Cerrar viaje" needs no receipts without an amount and no payments waiting for confirmation; after that the trip is read-only until the owner reopens it.
+
 Receipt reading ("Foto de la factura") goes through OpenRouter: add `OPENROUTER_API_KEY` (and optionally `OPENROUTER_RECEIPT_MODEL`) to `.env.local`. Without it, photos are attached to expenses but not read.
 
 ## Checks

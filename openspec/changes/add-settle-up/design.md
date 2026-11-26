@@ -20,8 +20,10 @@ This change builds on `add-trip-membership` and `add-expense-ledger`. Requiremen
    - Simplified uses a deterministic greedy algorithm: the largest absolute amount first, ties by seat id.
    - Rejected alternative: an optimal minimum-transfer solver. It's NP-hard, and greedy already guarantees ≤ n−1 transfers.
 4. **Frozen plan** (domain + persistence)
-   - On `startSettling` the application stores a `PlanSnapshot` (the transfers plus the balances at freeze time).
-   - Deltas = `planSimplified(currentBalances − frozenBalances)`. The plan shown is frozen transfers ∪ deltas, minus confirmed settlements.
+   - Right after `startSettling` the application stores a `PlanSnapshot` (the transfers plus the ledger balances at freeze time); `saveIfAbsent` keeps the first one, and a trip found in Liquidando without one freezes on its next read.
+   - Frozen rows shrink by the confirmed payments made on them since freezing. Deltas = `planSimplified(currentBalances + effect(remaining frozen rows))`: whatever paying the rest of the frozen plan would leave unsettled. This covers new expenses, payments that don't match a frozen row and reversals, and paying every row always leaves everyone at zero.
+   - For display, deltas merge into the frozen row of the same pair (or net against the opposite one) and the row is marked "ajuste".
+6. **"Revisa tu parte"** is settlement's: one `share_reviews` row per seat ("Todo bien" or a question). Questions go only to the person and the trip's admins, through the server.
 5. **Settlement state machine** (domain):
    - `pending → confirmed | disputed`
    - `confirmed → reversed`

@@ -27,6 +27,8 @@ export interface SheetTransfer {
   pendingSettlementId: string | null;
   /** The pending payment's amount, which can differ from what the plan says is owed now. */
   pendingAmount?: number;
+  /** Liquidando: moved off the frozen plan by a later change. */
+  adjusted?: boolean;
 }
 
 /**
@@ -47,6 +49,8 @@ export function TransferRow(props: {
   /** The receiver's details when I owe them (privacy: only debtors get them). */
   theirHandles: Handle[] | null;
   initiallyOpen?: boolean;
+  /** Cerrado: no more payments, so no sheet. */
+  readOnly?: boolean;
 }) {
   const { transfer: t, mySeatId, names } = props;
   const collecting = t.to === mySeatId;
@@ -63,6 +67,7 @@ export function TransferRow(props: {
       : paying
         ? "Tú pagas"
         : "Entre ellos";
+  const note = t.adjusted && !t.pendingSettlementId ? `${subtitle} · ajuste` : subtitle;
 
   const dialog = useRef<HTMLDialogElement>(null);
   const [session, setSession] = useState(0);
@@ -76,13 +81,13 @@ export function TransferRow(props: {
         <span className="text-[15px] font-semibold">
           {label(t.from)} → {label(t.to)}
         </span>
-        <span className={`text-[13px] ${t.pendingSettlementId && collecting ? "font-semibold text-accent-text" : "text-muted"}`}>{subtitle}</span>
+        <span className={`text-[13px] ${t.pendingSettlementId && collecting ? "font-semibold text-accent-text" : "text-muted"}`}>{note}</span>
       </span>
       <span className="tabular text-[15px] font-semibold">{fmt(t.amount, props.currency)}</span>
     </>
   );
 
-  if (!collecting && !paying) return <li className="flex min-h-[58px] items-center gap-3">{row}</li>;
+  if ((!collecting && !paying) || props.readOnly) return <li className="flex min-h-[58px] items-center gap-3">{row}</li>;
 
   return (
     <li>

@@ -3,6 +3,8 @@ import type { CurrencyCode } from "@/shared-kernel/money/currency";
 import type { BalanceNotice } from "../domain/balance-notice";
 import type { LedgerEntry } from "../domain/ledger-entry";
 import type { PayoutHandle } from "../domain/payout-handles";
+import type { PlanSnapshot } from "../domain/plan";
+import type { ShareReview } from "../domain/share-review";
 import type { Settlement } from "../domain/settlement";
 
 export interface SettlementRepository {
@@ -44,4 +46,18 @@ export interface PayoutHandleRepository {
   get(tripId: TripId, seatId: SeatId): Promise<PayoutHandle[]>;
   getMany(tripId: TripId, seatIds: readonly SeatId[]): Promise<Map<SeatId, PayoutHandle[]>>;
   set(tripId: TripId, seatId: SeatId, handles: readonly PayoutHandle[]): Promise<void>;
+}
+
+/** The plan frozen when the trip entered Liquidando (R9). */
+export interface PlanSnapshotRepository {
+  get(tripId: TripId): Promise<PlanSnapshot | null>;
+  /** Stores it unless one exists; returns the stored one either way. */
+  saveIfAbsent(tripId: TripId, snapshot: PlanSnapshot): Promise<PlanSnapshot>;
+}
+
+/** "Revisa tu parte" answers, one per seat. */
+export interface ShareReviewRepository {
+  get(tripId: TripId, seatId: SeatId): Promise<ShareReview | null>;
+  list(tripId: TripId): Promise<ShareReview[]>;
+  set(review: ShareReview): Promise<void>;
 }
