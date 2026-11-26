@@ -3,9 +3,10 @@
  * more than one context's model: each adapter implements a port owned by the
  * consuming context by reading the upstream context.
  */
-import type { MembershipReader } from "@/contexts/expense-ledger/application/ports";
+import type { LedgerEventPublisher, MembershipReader } from "@/contexts/expense-ledger/application/ports";
 import type { ExpenseRepository } from "@/contexts/expense-ledger/application/ports";
 import type { LedgerReader, SettlementMembershipReader } from "@/contexts/settlement/application/ports";
+import type { SettlementUseCases } from "@/contexts/settlement/application/use-cases";
 import type { LedgerEntry } from "@/contexts/settlement/domain/ledger-entry";
 import type { TripRepository } from "@/contexts/trip-membership/application/ports";
 import type { PrincipalId, TripId } from "@/shared-kernel/ids";
@@ -71,6 +72,24 @@ export function ledgerReader(expenses: ExpenseRepository): LedgerReader {
             shares: m.shares.map((s) => ({ seatId: s.seatId, base: s.baseAmount! })),
           };
         });
+    },
+  };
+}
+
+/** Ledger money changes → settlement's R14 detection. The effect shapes match LedgerEntry. */
+export function settlementListener(settlement: SettlementUseCases): LedgerEventPublisher {
+  return {
+    async moneyChanged(e) {
+      const entry = (effect: typeof e.before) => (effect ? { expenseId: e.expenseId, ...effect } : null);
+      const r = await settlement.recordLedgerChange({
+        tripId: e.tripId,
+        cause: { kind: e.kind, expenseId: e.expenseId, title: e.title, category: e.category },
+        by: e.by,
+        at: e.at,
+        before: entry(e.before),
+        after: entry(e.after),
+      });
+      if (!r.ok) throw r.error;
     },
   };
 }

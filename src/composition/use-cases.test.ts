@@ -56,6 +56,37 @@ describe("Use cases wired through the composition root", () => {
     expect(later.value.balances.find((b) => b.seatId === seat("Juli"))!.settled).toBe(true);
   });
 
+  it("tells a settled member when a later expense changes their balance (R14)", async () => {
+    const { c, tripId, seat } = await setup();
+    const invite = await c.membership.issueInvite(DEMO_PRINCIPAL, tripId, seat("Juli"));
+    if (!invite.ok) throw invite.error;
+    const juli = { id: PrincipalId("guest-juli"), kind: "guest" as const };
+    await c.membership.claimWithInvite(tripId, invite.value.token, juli);
+    // Mateo records Juli's payment: confirmed at once.
+    const paid = await c.settlement.recordSettlement(DEMO_PRINCIPAL, tripId, { from: seat("Juli"), to: seat("Mateo"), amount: 641_000, method: "breb" });
+    expect(paid.ok && paid.value.status).toBe("confirmed");
+
+    const dinner = await c.ledger.recordExpense(DEMO_PRINCIPAL, tripId, {
+      currency: "COP",
+      amount: 60_000,
+      title: "Cena",
+      split: { method: "equal", participants: [seat("Juli"), seat("Leo")] },
+    });
+    if (!dinner.ok) throw dinner.error;
+    const notices = await c.settlement.listMyNotices(juli.id, tripId);
+    if (!notices.ok) throw notices.error;
+    expect(notices.value).toMatchObject([{ delta: -30_000, cause: { kind: "created", title: "Cena" }, by: seat("Mateo") }]);
+    // Mateo made the change and Leo never settled: neither gets a notice.
+    const mateoNotices = await c.settlement.listMyNotices(DEMO_PRINCIPAL, tripId);
+    expect(mateoNotices.ok && mateoNotices.value).toEqual([]);
+
+    const other = await c.settlement.dismissNotice(DEMO_PRINCIPAL, tripId, notices.value[0].id);
+    expect(!other.ok && other.error.code).toBe("forbidden");
+    expect((await c.settlement.dismissNotice(juli.id, tripId, notices.value[0].id)).ok).toBe(true);
+    const after = await c.settlement.listMyNotices(juli.id, tripId);
+    expect(after.ok && after.value).toEqual([]);
+  });
+
   it("offers quick-add presets: same as last, and saved groups shared by the trip", async () => {
     const { c, tripId, seat } = await setup();
     const before = await c.ledger.getQuickAddDefaults(DEMO_PRINCIPAL, tripId);

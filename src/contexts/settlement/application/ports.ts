@@ -1,5 +1,6 @@
-import type { PrincipalId, SeatId, SettlementId, TripId } from "@/shared-kernel/ids";
+import type { NoticeId, PrincipalId, SeatId, SettlementId, TripId } from "@/shared-kernel/ids";
 import type { CurrencyCode } from "@/shared-kernel/money/currency";
+import type { BalanceNotice } from "../domain/balance-notice";
 import type { LedgerEntry } from "../domain/ledger-entry";
 import type { Settlement } from "../domain/settlement";
 
@@ -27,4 +28,12 @@ export interface SettlementTripView {
 export interface SettlementMembershipReader {
   getTripView(tripId: TripId): Promise<SettlementTripView | null>;
   seatOf(tripId: TripId, principalId: PrincipalId): Promise<SeatId | null>;
+}
+
+export interface BalanceNoticeRepository {
+  add(notices: readonly BalanceNotice[]): Promise<void>;
+  get(id: NoticeId): Promise<BalanceNotice | null>;
+  save(notice: BalanceNotice): Promise<void>;
+  /** Not yet dismissed, newest first. */
+  listOpen(tripId: TripId, seatId: SeatId): Promise<BalanceNotice[]>;
 }

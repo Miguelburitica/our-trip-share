@@ -2,16 +2,18 @@ import type { Clock } from "@/shared-kernel/clock";
 import { forbidden, notFound } from "@/shared-kernel/errors";
 import { ExpenseId, SplitGroupId, type IdGenerator, type PrincipalId, type SeatId, type TripId } from "@/shared-kernel/ids";
 import { attempt, type Result } from "@/shared-kernel/result";
-import { Expense, type Category, type Context, type ExpenseType, type MoneyInput } from "../domain/expense";
+import { Expense, type Category, type Context, type ExpenseEffect, type ExpenseType, type MoneyInput } from "../domain/expense";
 import { evaluateGuards, type ExpenseWarning } from "../domain/guards";
 import { SplitGroup } from "../domain/split-group";
 import { suggestSplit } from "../domain/split-suggestion";
-import type { ExpenseRepository, MembershipReader, SplitGroupRepository } from "./ports";
+import type { ExpenseMoneyChanged, ExpenseRepository, LedgerEventPublisher, MembershipReader, SplitGroupRepository } from "./ports";
 
 export interface ExpenseLedgerDeps {
   expenses: ExpenseRepository;
   splitGroups: SplitGroupRepository;
   membership: MembershipReader;
+  /** Optional: who hears about saved money changes. */
+  events?: LedgerEventPublisher;
   ids: IdGenerator;
   clock: Clock;
 }
@@ -82,6 +84,30 @@ export class ExpenseLedgerUseCases {
     return { actor, trip, now: this.deps.clock.now() };
   }
 
+  /**
+   * Best effort after the save: the expense is already stored, so a failing listener must not turn
+   * a successful action into an error the user would retry (and duplicate).
+   */
+  private async publish(kind: ExpenseMoneyChanged["kind"], expense: Expense, ctx: Context, before: ExpenseEffect | null) {
+    const after = expense.effect;
+    if (!this.deps.events || (!before && !after)) return;
+    try {
+      await this.deps.events.moneyChanged({
+        tripId: expense.tripId,
+        expenseId: expense.id,
+        kind,
+        title: expense.title,
+        category: expense.category,
+        by: ctx.actor,
+        at: ctx.now,
+        before,
+        after,
+      });
+    } catch (error) {
+      console.error("ledger event listener failed", error);
+    }
+  }
+
   private async load(tripId: TripId, expenseId: ExpenseId): Promise<Expense> {
     const expense = await this.deps.expenses.get(expenseId);
     if (!expense || expense.tripId !== tripId) throw notFound("No encontramos ese gasto");
@@ -98,6 +124,7 @@ export class ExpenseLedgerUseCases {
       const expense = Expense.record({ ...input, id: ExpenseId(this.deps.ids.next()) }, ctx);
       const others = await this.deps.expenses.listByTrip(tripId);
       await this.deps.expenses.save(expense, null);
+      await this.publish("created", expense, ctx, null);
       return { expense: toExpenseDTO(expense, ctx.actor), warnings: evaluateGuards(expense, others) };
     });
   }
@@ -121,8 +148,10 @@ export class ExpenseLedgerUseCases {
       const ctx = await this.context(principalId, tripId);
       const expense = await this.load(tripId, expenseId);
       const before = expense.moneyVersion;
+      const effect = expense.effect;
       expense.completeDraft(input, ctx);
       await this.deps.expenses.save(expense, before);
+      await this.publish("created", expense, ctx, effect);
       return toExpenseDTO(expense, ctx.actor);
     });
   }
@@ -137,8 +166,10 @@ export class ExpenseLedgerUseCases {
     return attempt(async () => {
       const ctx = await this.context(principalId, tripId);
       const expense = await this.load(tripId, expenseId);
+      const effect = expense.effect;
       expense.changeMoney(expectedVersion, input, ctx);
       await this.deps.expenses.save(expense, expectedVersion);
+      await this.publish("edited", expense, ctx, effect);
       return toExpenseDTO(expense, ctx.actor);
     });
   }
@@ -148,8 +179,10 @@ export class ExpenseLedgerUseCases {
       const ctx = await this.context(principalId, tripId);
       const expense = await this.load(tripId, expenseId);
       const version = expense.moneyVersion;
+      const effect = expense.effect;
       expense.delete(ctx);
       await this.deps.expenses.save(expense, version);
+      await this.publish("deleted", expense, ctx, effect);
     });
   }
 

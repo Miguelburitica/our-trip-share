@@ -10,7 +10,7 @@
 
 - [x] 2.1 Define the `LedgerReader` and `SettlementRepository` ports with in-memory adapters, and a ledger adapter backed by the expense repository; verify with use-case tests
 - [x] 2.2 Implement the use cases `getTripBalances`, `getSettlementPlan`, `recordSettlement`, `confirmSettlement`, `disputeSettlement`; verify with Vitest
-- [ ] 2.3 Implement balance-reopened detection after expense edits; verify with Vitest
+- [x] 2.3 Implement balance-reopened detection after expense money changes (ledger publishes `ExpenseMoneyChanged`, settlement records `balance_notices`), with the Inicio "Tu saldo cambió" card; verify with Vitest, `npm run test:db`, pgTAP and in the browser
 
 ## 3. Database
 

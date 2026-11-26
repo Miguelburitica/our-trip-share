@@ -36,8 +36,12 @@ A balance whose absolute value is below the base currency's dust tolerance (COP 
 - **THEN** Caro is shown as settled
 
 ### Requirement: Reopened balance detection
-When a money change moves the balance of a seat that has at least one confirmed settlement, the system SHALL emit a balance-reopened event naming the seat, the delta and the cause.
+When a money change (an expense created, completed, edited or deleted) moves the balance of a seat that has at least one confirmed settlement, the system SHALL record a "Tu saldo cambió" notice for that seat naming the delta, the expense and who changed it. The seat that made the change SHALL NOT be notified. Only the notified seat SHALL see and dismiss its notice.
 
 #### Scenario: Dinner edited after Juli settled
 - **WHEN** Juli has a confirmed settlement and the dinner amount changes so that her share rises by 12.000
-- **THEN** a balance-reopened event for Juli with delta −12.000 is emitted
+- **THEN** a notice for Juli with delta −12.000 is recorded, and Mateo, who edited it, gets none
+
+#### Scenario: Dismissing
+- **WHEN** Juli taps "Entendido" on her notice
+- **THEN** it no longer shows, and nobody else can dismiss it for her

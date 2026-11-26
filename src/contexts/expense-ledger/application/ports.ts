@@ -1,5 +1,5 @@
 import type { ExpenseId, PrincipalId, SeatId, SplitGroupId, TripId } from "@/shared-kernel/ids";
-import type { Expense } from "../domain/expense";
+import type { Category, Expense, ExpenseEffect } from "../domain/expense";
 import type { SplitGroup } from "../domain/split-group";
 import type { LedgerTripView } from "../domain/trip-view";
 
@@ -21,4 +21,21 @@ export interface SplitGroupRepository {
   /** Inserts a new group; a duplicate name in the trip is a validation error. */
   add(group: SplitGroup): Promise<void>;
   delete(tripId: TripId, id: SplitGroupId): Promise<void>;
+}
+
+/** Published after a money change is saved, so other contexts can react (settlement: R14 notices). */
+export interface ExpenseMoneyChanged {
+  tripId: TripId;
+  expenseId: ExpenseId;
+  kind: "created" | "edited" | "deleted";
+  title: string | null;
+  category: Category;
+  by: SeatId;
+  at: Date;
+  before: ExpenseEffect | null;
+  after: ExpenseEffect | null;
+}
+
+export interface LedgerEventPublisher {
+  moneyChanged(event: ExpenseMoneyChanged): Promise<void>;
 }

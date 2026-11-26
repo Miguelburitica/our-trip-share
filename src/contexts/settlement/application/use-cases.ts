@@ -1,17 +1,25 @@
 import type { Clock } from "@/shared-kernel/clock";
 import { forbidden, notFound } from "@/shared-kernel/errors";
-import { SettlementId, type IdGenerator, type PrincipalId, type SeatId, type TripId } from "@/shared-kernel/ids";
+import { NoticeId, SettlementId, type IdGenerator, type PrincipalId, type SeatId, type TripId } from "@/shared-kernel/ids";
 import { CURRENCIES } from "@/shared-kernel/money/currency";
 import { isWithinDust } from "@/shared-kernel/money/money";
 import { attempt, type Result } from "@/shared-kernel/result";
+import { detectReopened, type ChangeCause, type LedgerChange } from "../domain/balance-notice";
 import { computeBalances, overpaymentCredit } from "../domain/balances";
 import type { Transfer } from "../domain/ledger-entry";
 import { planDirect, planHub, planSimplified } from "../domain/plan";
 import { Settlement, type SettlementStatus } from "../domain/settlement";
-import type { LedgerReader, SettlementMembershipReader, SettlementRepository, SettlementTripView } from "./ports";
+import type {
+  BalanceNoticeRepository,
+  LedgerReader,
+  SettlementMembershipReader,
+  SettlementRepository,
+  SettlementTripView,
+} from "./ports";
 
 export interface SettlementDeps {
   settlements: SettlementRepository;
+  notices: BalanceNoticeRepository;
   ledger: LedgerReader;
   membership: SettlementMembershipReader;
   ids: IdGenerator;
@@ -31,6 +39,14 @@ export interface BalancesDTO {
   balances: Array<{ seatId: SeatId; balance: number; settled: boolean }>;
   plan: PlannedTransfer[];
   pending: Array<{ id: SettlementId; from: SeatId; to: SeatId; baseAmount: number }>;
+}
+
+export interface NoticeDTO {
+  id: NoticeId;
+  delta: number;
+  cause: ChangeCause;
+  by: SeatId;
+  at: string;
 }
 
 /** Application service for the settlement context. */
@@ -136,6 +152,40 @@ export class SettlementUseCases {
       if (!settlement || settlement.toPrimitives().tripId !== tripId) throw notFound("No encontramos ese pago");
       apply(settlement, actor, this.deps.clock.now());
       await this.deps.settlements.save(settlement);
+    });
+  }
+
+  /**
+   * Called after the ledger saved a money change (the ledger already checked permissions). Records a
+   * "Tu saldo cambió" notice for each settled seat the change moved. Returns how many were created.
+   */
+  recordLedgerChange(change: LedgerChange): Promise<Result<number>> {
+    return attempt(async () => {
+      const settlements = (await this.deps.settlements.listByTrip(change.tripId)).map((s) => s.toPrimitives());
+      const notices = detectReopened(change, settlements, () => NoticeId(this.deps.ids.next()));
+      if (notices.length) await this.deps.notices.add(notices);
+      return notices.length;
+    });
+  }
+
+  listMyNotices(principalId: PrincipalId, tripId: TripId): Promise<Result<NoticeDTO[]>> {
+    return attempt(async () => {
+      const { actor } = await this.context(principalId, tripId);
+      const open = await this.deps.notices.listOpen(tripId, actor.seatId);
+      return open.map((n) => {
+        const p = n.toPrimitives();
+        return { id: p.id, delta: p.delta, cause: p.cause, by: p.by, at: p.createdAt.toISOString() };
+      });
+    });
+  }
+
+  dismissNotice(principalId: PrincipalId, tripId: TripId, id: NoticeId): Promise<Result<void>> {
+    return attempt(async () => {
+      const { actor } = await this.context(principalId, tripId);
+      const notice = await this.deps.notices.get(id);
+      if (!notice || notice.tripId !== tripId) throw notFound("No encontramos ese aviso");
+      notice.dismiss(actor.seatId, this.deps.clock.now());
+      await this.deps.notices.save(notice);
     });
   }
 }

@@ -34,6 +34,12 @@ export interface ExpenseProps {
   history: ExpenseChange[];
 }
 
+export interface ExpenseEffect {
+  readonly sign: 1 | -1;
+  readonly payers: ReadonlyArray<{ readonly seatId: SeatId; readonly base: number }>;
+  readonly shares: ReadonlyArray<{ readonly seatId: SeatId; readonly base: number }>;
+}
+
 export interface MoneyInput {
   currency: string;
   amount: number;
@@ -230,6 +236,16 @@ export class Expense {
   /** Complete, not deleted, and with a known base amount. */
   get countsTowardBalances(): boolean {
     return this.props.status === "complete" && this.props.money !== null && this.props.money.baseAmount !== null;
+  }
+  /** What this expense adds to balances, in base units; null while it doesn't count. */
+  get effect(): ExpenseEffect | null {
+    if (!this.countsTowardBalances) return null;
+    const m = this.props.money!;
+    return {
+      sign: this.sign,
+      payers: m.payers.map((x) => ({ seatId: x.seatId, base: x.baseAmount! })),
+      shares: m.shares.map((x) => ({ seatId: x.seatId, base: x.baseAmount! })),
+    };
   }
   /** +1 for expenses, −1 for money received (refunds, deposits back). */
   get sign(): 1 | -1 {

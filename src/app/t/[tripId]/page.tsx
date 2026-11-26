@@ -1,15 +1,17 @@
 import Link from "next/link";
 import { dayKey, expenseTitle, fmt } from "@/app/ui/money";
+import { dismissNoticeAction } from "./actions";
 import { loadTrip } from "./data";
 
 export default async function Inicio({ params }: { params: Promise<{ tripId: string }> }) {
   const { tripId: raw } = await params;
   const { c, principal, tripId, trip, nameOf } = await loadTrip(raw);
-  const [balances, expenses] = await Promise.all([
+  const [balances, expenses, notices] = await Promise.all([
     c.settlement.getTripBalances(principal, tripId),
     c.ledger.listTripExpenses(principal, tripId),
+    c.settlement.listMyNotices(principal, tripId),
   ]);
-  if (!balances.ok || !expenses.ok) throw new Error("No pudimos cargar el viaje");
+  if (!balances.ok || !expenses.ok || !notices.ok) throw new Error("No pudimos cargar el viaje");
   const b = balances.value;
   const owedToMe = b.myBalance > 0;
   const payers = b.plan.filter((t) => t.to === b.mySeatId).map((t) => nameOf(t.from));
@@ -60,9 +62,28 @@ export default async function Inicio({ params }: { params: Promise<{ tripId: str
         </div>
       </section>
 
-      {(pendingForMe.length > 0 || drafts.length > 0) && (
+      {(pendingForMe.length > 0 || drafts.length > 0 || notices.value.length > 0) && (
         <section aria-label="Para ti" className="flex flex-col gap-3">
           <h2 className="px-1 text-[15px] font-semibold">Para ti</h2>
+          {notices.value.slice(0, 3).map((n) => (
+            <div key={n.id} role="status" className="flex items-center gap-3.5 rounded-[22px] bg-accent-soft px-4.5 py-4">
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="text-[15px] font-semibold text-accent-text">
+                  Tu saldo cambió: {n.delta < 0 ? "debes" : "te deben"} {fmt(Math.abs(n.delta), b.baseCurrency)} más
+                </span>
+                <span className="text-sm text-accent-text/80">
+                  {expenseTitle({ title: n.cause.title, category: n.cause.category, status: "complete" })} ·{" "}
+                  {nameOf(n.by)} {NOTICE_VERB[n.cause.kind]}
+                </span>
+              </span>
+              <form action={dismissNoticeAction.bind(null, tripId, n.id)}>
+                <button type="submit" className="flex min-h-11 items-center rounded-full bg-surface px-4 text-sm font-semibold">
+                  Entendido
+                </button>
+              </form>
+            </div>
+          ))}
+          {(pendingForMe.length > 0 || drafts.length > 0) && (
           <Link href={pendingForMe.length ? `${base}/cuentas` : `${base}/gastos`} className="flex items-center gap-3.5 rounded-[22px] bg-surface px-4.5 py-4 shadow-card">
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="text-[15px] font-semibold">
@@ -77,6 +98,7 @@ export default async function Inicio({ params }: { params: Promise<{ tripId: str
             </span>
             <Chevron />
           </Link>
+          )}
         </section>
       )}
 
@@ -103,6 +125,8 @@ export default async function Inicio({ params }: { params: Promise<{ tripId: str
     </main>
   );
 }
+
+const NOTICE_VERB = { created: "lo agregó", edited: "lo editó", deleted: "lo borró" } as const;
 
 function Chevron() {
   return (

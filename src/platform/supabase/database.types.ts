@@ -23,7 +23,45 @@ export type Database = {
           }
         },"public": {
           Tables: {
-            "expense_changes": {
+            "balance_notices": {
+                  Row: {
+                    "by_seat": string | null,"cause_category": string,"cause_kind": string,"cause_title": string | null,"created_at": string,"delta": number,"dismissed_at": string | null,"expense_id": string | null,"id": string,"seat_id": string,"trip_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "by_seat"?: string | null,"cause_category": string,"cause_kind": string,"cause_title"?: string | null,"created_at"?: string,"delta": number,"dismissed_at"?: string | null,"expense_id"?: string | null,"id": string,"seat_id": string,"trip_id": string
+                  }
+                  Update: {
+                    "by_seat"?: string | null,"cause_category"?: string,"cause_kind"?: string,"cause_title"?: string | null,"created_at"?: string,"delta"?: number,"dismissed_at"?: string | null,"expense_id"?: string | null,"id"?: string,"seat_id"?: string,"trip_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "balance_notices_by_seat_fkey"
+      columns: ["by_seat"]
+isOneToOne: false
+      referencedRelation: "seats"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "balance_notices_expense_id_fkey"
+      columns: ["expense_id"]
+isOneToOne: false
+      referencedRelation: "expenses"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "balance_notices_seat_id_fkey"
+      columns: ["seat_id"]
+isOneToOne: false
+      referencedRelation: "seats"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "balance_notices_trip_id_fkey"
+      columns: ["trip_id"]
+isOneToOne: false
+      referencedRelation: "trips"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"expense_changes": {
                   Row: {
                     "at": string,"by_seat": string,"expense_id": string,"id": number,"kind": string,"money_version": number,"summary": string | null
                   }

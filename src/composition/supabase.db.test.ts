@@ -134,6 +134,20 @@ describe.skipIf(!url || !secret)("Supabase repositories (local stack)", () => {
     expect(after.value.balances.find((b) => b.seatId === seats.get("Juli"))!.balance).toBe(juli.balance);
   });
 
+  it("stores and dismisses balance notices", async () => {
+    const before = (await db.from("settlements").select("id", { count: "exact", head: true }).eq("trip_id", tripId)).count ?? 0;
+    expect(before).toBeGreaterThan(0); // Ana's confirmed settlement from the previous test
+    const r = await c.ledger.recordExpense(mateo.id, tripId, {
+      currency: "COP",
+      amount: 20_000,
+      title: "Helado",
+      split: { method: "equal", participants: [seats.get("Ana")!, seats.get("Juli")!] },
+    });
+    if (!r.ok) throw r.error;
+    const { data } = await db.from("balance_notices").select("seat_id, delta, cause_title").eq("trip_id", tripId);
+    expect(data).toEqual([{ seat_id: seats.get("Ana"), delta: -10_000, cause_title: "Helado" }]);
+  });
+
   it("saves, lists and deletes split groups", async () => {
     const pair = [seats.get("Ana")!, seats.get("Juli")!];
     const saved = await c.ledger.saveSplitGroup(mateo.id, tripId, { name: "Carro 1", seatIds: pair });

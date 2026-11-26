@@ -7,7 +7,7 @@ import { CATEGORIES, type Category } from "@/contexts/expense-ledger/domain/expe
 import { requirePrincipal, signOut } from "@/composition/auth";
 import { getContainer } from "@/composition/server";
 import { ERROR_COPY as COPY } from "@/app/ui/copy";
-import { SeatId, SplitGroupId, TripId } from "@/shared-kernel/ids";
+import { NoticeId, SeatId, SplitGroupId, TripId } from "@/shared-kernel/ids";
 
 export type ActionResult =
   | { ok: true; warnings: string[] }
@@ -93,6 +93,14 @@ export async function issueInviteAction(tripId: string, seatId: string): Promise
     url,
     message: `${first}, te agregué a *${trip.value.name}* en Our Share. Aquí ves cuánto te toca: ${url}`,
   };
+}
+
+/** "Entendido" on a "Tu saldo cambió" card. */
+export async function dismissNoticeAction(tripId: string, noticeId: string): Promise<void> {
+  const { id: principal } = await requirePrincipal();
+  const c = await getContainer();
+  await c.settlement.dismissNotice(principal, TripId(tripId), NoticeId(String(noticeId)));
+  revalidatePath(`/t/${tripId}`);
 }
 
 export async function signOutAction() {

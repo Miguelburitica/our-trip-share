@@ -4,9 +4,11 @@ import { InMemoryExpenseRepository } from "@/contexts/expense-ledger/infrastruct
 import { InMemorySplitGroupRepository } from "@/contexts/expense-ledger/infrastructure/in-memory-split-group-repository";
 import { SupabaseExpenseRepository } from "@/contexts/expense-ledger/infrastructure/supabase-expense-repository";
 import { SupabaseSplitGroupRepository } from "@/contexts/expense-ledger/infrastructure/supabase-split-group-repository";
-import type { SettlementRepository } from "@/contexts/settlement/application/ports";
+import type { BalanceNoticeRepository, SettlementRepository } from "@/contexts/settlement/application/ports";
 import { SettlementUseCases } from "@/contexts/settlement/application/use-cases";
+import { InMemoryBalanceNoticeRepository } from "@/contexts/settlement/infrastructure/in-memory-balance-notice-repository";
 import { InMemorySettlementRepository } from "@/contexts/settlement/infrastructure/in-memory-settlement-repository";
+import { SupabaseBalanceNoticeRepository } from "@/contexts/settlement/infrastructure/supabase-balance-notice-repository";
 import { SupabaseSettlementRepository } from "@/contexts/settlement/infrastructure/supabase-settlement-repository";
 import type { SeatUsage, SettlementPresence, TripRepository } from "@/contexts/trip-membership/application/ports";
 import { TripMembershipUseCases } from "@/contexts/trip-membership/application/use-cases";
@@ -16,7 +18,7 @@ import { SupabaseTripRepository } from "@/contexts/trip-membership/infrastructur
 import type { Db } from "@/platform/supabase/db";
 import { systemClock, type Clock } from "@/shared-kernel/clock";
 import { uuidGenerator, type IdGenerator } from "@/shared-kernel/ids";
-import { ledgerMembershipReader, ledgerReader, settlementMembershipReader } from "./context-adapters";
+import { ledgerMembershipReader, ledgerReader, settlementListener, settlementMembershipReader } from "./context-adapters";
 
 export interface Container {
   membership: TripMembershipUseCases;
@@ -30,6 +32,7 @@ export interface Repositories {
   expenses: ExpenseRepository & SeatUsage;
   splitGroups: SplitGroupRepository;
   settlements: SettlementRepository & SettlementPresence & SeatUsage;
+  notices: BalanceNoticeRepository;
 }
 
 /**
@@ -39,7 +42,15 @@ export interface Repositories {
 export function createContainer(repos: Repositories, opts: { clock?: Clock; ids?: IdGenerator } = {}): Container {
   const clock = opts.clock ?? systemClock;
   const ids = opts.ids ?? uuidGenerator;
-  const { trips, expenses, splitGroups, settlements } = repos;
+  const { trips, expenses, splitGroups, settlements, notices } = repos;
+  const settlement = new SettlementUseCases({
+    settlements,
+    notices,
+    ledger: ledgerReader(expenses),
+    membership: settlementMembershipReader(trips),
+    ids,
+    clock,
+  });
 
   return {
     membership: new TripMembershipUseCases({
@@ -53,14 +64,15 @@ export function createContainer(repos: Repositories, opts: { clock?: Clock; ids?
       ids,
       clock,
     }),
-    ledger: new ExpenseLedgerUseCases({ expenses, splitGroups, membership: ledgerMembershipReader(trips), ids, clock }),
-    settlement: new SettlementUseCases({
-      settlements,
-      ledger: ledgerReader(expenses),
-      membership: settlementMembershipReader(trips),
+    ledger: new ExpenseLedgerUseCases({
+      expenses,
+      splitGroups,
+      membership: ledgerMembershipReader(trips),
+      events: settlementListener(settlement),
       ids,
       clock,
     }),
+    settlement,
   };
 }
 
@@ -71,6 +83,7 @@ export function createMemoryContainer(opts: { clock?: Clock; ids?: IdGenerator }
       expenses: new InMemoryExpenseRepository(),
       splitGroups: new InMemorySplitGroupRepository(),
       settlements: new InMemorySettlementRepository(),
+      notices: new InMemoryBalanceNoticeRepository(),
     },
     opts,
   );
@@ -83,6 +96,7 @@ export function createSupabaseContainer(db: Db, opts: { clock?: Clock; ids?: IdG
       expenses: new SupabaseExpenseRepository(db),
       splitGroups: new SupabaseSplitGroupRepository(db),
       settlements: new SupabaseSettlementRepository(db),
+      notices: new SupabaseBalanceNoticeRepository(db),
     },
     opts,
   );
