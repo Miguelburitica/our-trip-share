@@ -54,3 +54,14 @@ A settlement in a currency other than the base currency SHALL store an explicit 
 #### Scenario: Juli pays in USD
 - **WHEN** Juli pays her full 641.000 COP debt with 155.00 USD using "Saldar todo"
 - **THEN** the settlement's base amount is exactly 641.000 COP and Juli's balance becomes 0
+
+### Requirement: Payment details shown only to debtors
+Each member SHALL be able to save up to 4 payment details for a trip (Bre-B key, Nequi, Daviplata, bank account, PayPal or other). They SHALL be shown in the Pagar sheet only to members who owe that person in the plan being viewed, with a copy button each, and SHALL be added to that person's WhatsApp cobro. Directly through the API, a member SHALL read only their own.
+
+#### Scenario: Juli pays Mateo
+- **WHEN** Juli owes Mateo 641.000 and opens Pagar
+- **THEN** she sees Mateo's Bre-B key and Nequi number and can copy each
+
+#### Scenario: Nobody else sees them
+- **WHEN** Ana owes Mateo nothing in the current plan
+- **THEN** Mateo's payment details are not sent to Ana

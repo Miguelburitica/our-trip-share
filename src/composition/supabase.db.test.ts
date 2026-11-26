@@ -166,6 +166,18 @@ describe.skipIf(!url || !secret)("Supabase repositories (local stack)", () => {
     await db.storage.from("receipts").remove([scan.value.receiptPath]);
   });
 
+  it("stores payout handles per seat", async () => {
+    const saved = await c.settlement.setMyHandles(mateo.id, tripId, [{ kind: "nequi", value: "300 123 4567" }]);
+    if (!saved.ok) throw saved.error;
+    const mine = await c.settlement.getMyHandles(mateo.id, tripId);
+    expect(mine.ok && mine.value).toEqual([{ kind: "nequi", value: "300 123 4567" }]);
+    if (publishable) {
+      const anon = createClient<Database>(url!, publishable, { auth: { persistSession: false } });
+      const direct = await anon.from("payout_handles").select("*").eq("trip_id", tripId);
+      expect(direct.data ?? []).toHaveLength(0);
+    }
+  });
+
   it("saves, lists and deletes split groups", async () => {
     const pair = [seats.get("Ana")!, seats.get("Juli")!];
     const saved = await c.ledger.saveSplitGroup(mateo.id, tripId, { name: "Carro 1", seatIds: pair });

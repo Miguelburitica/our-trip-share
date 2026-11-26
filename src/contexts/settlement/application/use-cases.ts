@@ -9,8 +9,10 @@ import { computeBalances, overpaymentCredit } from "../domain/balances";
 import type { Transfer } from "../domain/ledger-entry";
 import { planDirect, planHub, planSimplified } from "../domain/plan";
 import { Settlement, type SettlementStatus } from "../domain/settlement";
+import { handlesVisibleTo, normalizeHandles, type PayoutHandle } from "../domain/payout-handles";
 import type {
   BalanceNoticeRepository,
+  PayoutHandleRepository,
   LedgerReader,
   SettlementMembershipReader,
   SettlementRepository,
@@ -20,6 +22,7 @@ import type {
 export interface SettlementDeps {
   settlements: SettlementRepository;
   notices: BalanceNoticeRepository;
+  handles: PayoutHandleRepository;
   ledger: LedgerReader;
   membership: SettlementMembershipReader;
   ids: IdGenerator;
@@ -72,22 +75,27 @@ export class SettlementUseCases {
     return all;
   }
 
+  /** Balances and the plan in `mode` (default: the trip's), plus who is pending. */
+  private async compute(tripId: TripId, trip: SettlementTripView, mode?: SettlementTripView["settleMode"]) {
+    const entries = await this.deps.ledger.entries(tripId);
+    const settlements = (await this.settlementsOf(tripId)).map((s) => s.toPrimitives());
+    const seatIds = trip.seats.map((s) => s.id);
+    const { balances } = computeBalances(seatIds, entries, settlements);
+    const dust = CURRENCIES[trip.baseCurrency].dustTolerance - 1;
+    const effectiveMode = mode ?? trip.settleMode;
+    const transfers =
+      effectiveMode === "hub" && trip.hubSeatId
+        ? planHub(balances, trip.hubSeatId, dust)
+        : effectiveMode === "direct"
+          ? planDirect(entries, settlements)
+          : planSimplified(balances, dust);
+    return { seatIds, balances, transfers, effectiveMode, pending: settlements.filter((s) => s.status === "pending") };
+  }
+
   getTripBalances(principalId: PrincipalId, tripId: TripId, mode?: SettlementTripView["settleMode"]): Promise<Result<BalancesDTO>> {
     return attempt(async () => {
       const { trip, actor } = await this.context(principalId, tripId);
-      const entries = await this.deps.ledger.entries(tripId);
-      const settlements = (await this.settlementsOf(tripId)).map((s) => s.toPrimitives());
-      const seatIds = trip.seats.map((s) => s.id);
-      const { balances } = computeBalances(seatIds, entries, settlements);
-      const dust = CURRENCIES[trip.baseCurrency].dustTolerance - 1;
-      const effectiveMode = mode ?? trip.settleMode;
-      const transfers =
-        effectiveMode === "hub" && trip.hubSeatId
-          ? planHub(balances, trip.hubSeatId, dust)
-          : effectiveMode === "direct"
-            ? planDirect(entries, settlements)
-            : planSimplified(balances, dust);
-      const pending = settlements.filter((s) => s.status === "pending");
+      const { seatIds, balances, transfers, effectiveMode, pending } = await this.compute(tripId, trip, mode);
       return {
         baseCurrency: trip.baseCurrency,
         settleMode: effectiveMode,
@@ -103,6 +111,41 @@ export class SettlementUseCases {
         })),
         pending: pending.map((p) => ({ id: p.id, from: p.from, to: p.to, baseAmount: p.baseAmount })),
       };
+    });
+  }
+
+  /** "Cómo me pagan": my own payment details in this trip. */
+  getMyHandles(principalId: PrincipalId, tripId: TripId): Promise<Result<PayoutHandle[]>> {
+    return attempt(async () => {
+      const { actor } = await this.context(principalId, tripId);
+      return this.deps.handles.get(tripId, actor.seatId);
+    });
+  }
+
+  setMyHandles(principalId: PrincipalId, tripId: TripId, input: ReadonlyArray<{ kind: string; value: string }>): Promise<Result<PayoutHandle[]>> {
+    return attempt(async () => {
+      const { actor } = await this.context(principalId, tripId);
+      const handles = normalizeHandles(input);
+      await this.deps.handles.set(tripId, actor.seatId, handles);
+      return handles;
+    });
+  }
+
+  /**
+   * The payment details of the people I owe right now (in `mode`, as Cuentas shows it). Nobody
+   * else's are returned.
+   */
+  getHandlesToPay(
+    principalId: PrincipalId,
+    tripId: TripId,
+    mode?: SettlementTripView["settleMode"],
+  ): Promise<Result<Array<{ seatId: SeatId; handles: PayoutHandle[] }>>> {
+    return attempt(async () => {
+      const { trip, actor } = await this.context(principalId, tripId);
+      const { transfers } = await this.compute(tripId, trip, mode);
+      const visible = [...handlesVisibleTo(actor.seatId, transfers)];
+      const found = await this.deps.handles.getMany(tripId, visible);
+      return visible.map((seatId) => ({ seatId, handles: found.get(seatId) ?? [] }));
     });
   }
 

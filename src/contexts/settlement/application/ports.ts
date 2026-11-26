@@ -2,6 +2,7 @@ import type { NoticeId, PrincipalId, SeatId, SettlementId, TripId } from "@/shar
 import type { CurrencyCode } from "@/shared-kernel/money/currency";
 import type { BalanceNotice } from "../domain/balance-notice";
 import type { LedgerEntry } from "../domain/ledger-entry";
+import type { PayoutHandle } from "../domain/payout-handles";
 import type { Settlement } from "../domain/settlement";
 
 export interface SettlementRepository {
@@ -36,4 +37,11 @@ export interface BalanceNoticeRepository {
   save(notice: BalanceNotice): Promise<void>;
   /** Not yet dismissed, newest first. */
   listOpen(tripId: TripId, seatId: SeatId): Promise<BalanceNotice[]>;
+}
+
+/** Each seat's "cómo me pagan" (Bre-B key, Nequi…). Private: see payout-handles.ts. */
+export interface PayoutHandleRepository {
+  get(tripId: TripId, seatId: SeatId): Promise<PayoutHandle[]>;
+  getMany(tripId: TripId, seatIds: readonly SeatId[]): Promise<Map<SeatId, PayoutHandle[]>>;
+  set(tripId: TripId, seatId: SeatId, handles: readonly PayoutHandle[]): Promise<void>;
 }

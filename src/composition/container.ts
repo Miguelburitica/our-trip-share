@@ -6,10 +6,12 @@ import { InMemorySplitGroupRepository } from "@/contexts/expense-ledger/infrastr
 import { SupabaseReceiptStore } from "@/contexts/expense-ledger/infrastructure/supabase-receipt-store";
 import { SupabaseExpenseRepository } from "@/contexts/expense-ledger/infrastructure/supabase-expense-repository";
 import { SupabaseSplitGroupRepository } from "@/contexts/expense-ledger/infrastructure/supabase-split-group-repository";
-import type { BalanceNoticeRepository, SettlementRepository } from "@/contexts/settlement/application/ports";
+import type { BalanceNoticeRepository, PayoutHandleRepository, SettlementRepository } from "@/contexts/settlement/application/ports";
 import { SettlementUseCases } from "@/contexts/settlement/application/use-cases";
 import { InMemoryBalanceNoticeRepository } from "@/contexts/settlement/infrastructure/in-memory-balance-notice-repository";
+import { InMemoryPayoutHandleRepository } from "@/contexts/settlement/infrastructure/in-memory-payout-handle-repository";
 import { InMemorySettlementRepository } from "@/contexts/settlement/infrastructure/in-memory-settlement-repository";
+import { SupabasePayoutHandleRepository } from "@/contexts/settlement/infrastructure/supabase-payout-handle-repository";
 import { SupabaseBalanceNoticeRepository } from "@/contexts/settlement/infrastructure/supabase-balance-notice-repository";
 import { SupabaseSettlementRepository } from "@/contexts/settlement/infrastructure/supabase-settlement-repository";
 import type { SeatUsage, SettlementPresence, TripRepository } from "@/contexts/trip-membership/application/ports";
@@ -36,6 +38,7 @@ export interface Repositories {
   receipts: ReceiptStore;
   settlements: SettlementRepository & SettlementPresence & SeatUsage;
   notices: BalanceNoticeRepository;
+  handles: PayoutHandleRepository;
 }
 
 export interface ContainerOptions {
@@ -52,10 +55,11 @@ export interface ContainerOptions {
 export function createContainer(repos: Repositories, opts: ContainerOptions = {}): Container {
   const clock = opts.clock ?? systemClock;
   const ids = opts.ids ?? uuidGenerator;
-  const { trips, expenses, splitGroups, receipts, settlements, notices } = repos;
+  const { trips, expenses, splitGroups, receipts, settlements, notices, handles } = repos;
   const settlement = new SettlementUseCases({
     settlements,
     notices,
+    handles,
     ledger: ledgerReader(expenses),
     membership: settlementMembershipReader(trips),
     ids,
@@ -97,6 +101,7 @@ export function createMemoryContainer(opts: ContainerOptions = {}): Container {
       receipts: new InMemoryReceiptStore(),
       settlements: new InMemorySettlementRepository(),
       notices: new InMemoryBalanceNoticeRepository(),
+      handles: new InMemoryPayoutHandleRepository(),
     },
     opts,
   );
@@ -111,6 +116,7 @@ export function createSupabaseContainer(db: Db, opts: ContainerOptions = {}): Co
       receipts: new SupabaseReceiptStore(db),
       settlements: new SupabaseSettlementRepository(db),
       notices: new SupabaseBalanceNoticeRepository(db),
+      handles: new SupabasePayoutHandleRepository(db),
     },
     opts,
   );

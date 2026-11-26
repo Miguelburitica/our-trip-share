@@ -20,3 +20,4 @@
 
 - [x] 4.1 Build the Inicio balance card and the Cuentas screen (mode switch, plan, per-person balances) from the use cases; verify with the Cartagena seed in the browser
 - [x] 4.2 Build the Cobrar sheet (WhatsApp cobro, "Ya me pagó", confirm or dispute a pending payment) and the Pagar sheet ("Ya pagué"); list pending payments that no longer match the plan under "Por confirmar"; verify in the browser
+- [x] 4.3 Save "Cómo te pagan" per seat (`payout_handles`, own-only RLS), show the receiver's details in Pagar only to debtors (`getHandlesToPay`), and add mine to the WhatsApp cobro; verify with Vitest, `npm run test:db`, pgTAP and in the browser

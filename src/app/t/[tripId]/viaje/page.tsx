@@ -5,6 +5,7 @@ import { backend } from "@/composition/server";
 import { loadTrip } from "../data";
 import { signOutAction } from "../actions";
 import { ClaimRequests } from "./claim-requests";
+import { HandlesForm } from "./handles-form";
 import { InviteButton } from "./invite-button";
 import { JoinLinkCard } from "./join-link-card";
 
@@ -21,7 +22,8 @@ export default async function Viaje({
 }) {
   const { tripId: raw } = await params;
   const { nuevo } = await searchParams;
-  const { trip, isGuest } = await loadTrip(raw);
+  const { c, principal, trip, isGuest } = await loadTrip(raw);
+  const myHandles = await c.settlement.getMyHandles(principal, trip.id);
   const me = trip.seats.find((s) => s.id === trip.mySeatId);
   const canInvite = me?.role === "owner" || me?.role === "admin";
   const waiting = trip.seats.filter((s) => !s.linked && !s.pendingClaim).length;
@@ -95,6 +97,8 @@ export default async function Viaje({
           ))}
         </ul>
       </section>
+
+      <HandlesForm tripId={trip.id} initial={myHandles.ok ? myHandles.value : []} />
 
       <section aria-label="Herramientas" className="flex flex-col gap-2.5">
         <h2 className="px-1 text-[15px] font-semibold">Herramientas</h2>

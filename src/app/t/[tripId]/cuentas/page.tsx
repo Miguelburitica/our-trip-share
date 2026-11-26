@@ -23,6 +23,13 @@ export default async function Cuentas({
   const result = await c.settlement.getTripBalances(principal, tripId, mode === "hub" && !trip.hubSeatId ? "simplified" : mode);
   if (!result.ok) throw new Error("No pudimos calcular las cuentas");
   const b = result.value;
+  const planMode = mode === "hub" && !trip.hubSeatId ? "simplified" : mode;
+  const [mine, toPay] = await Promise.all([
+    c.settlement.getMyHandles(principal, tripId),
+    c.settlement.getHandlesToPay(principal, tripId, planMode),
+  ]);
+  const myHandles = mine.ok ? mine.value : [];
+  const handlesOf = (seatId: string) => (toPay.ok ? (toPay.value.find((h) => h.seatId === seatId)?.handles ?? null) : null);
   const max = Math.max(1, ...b.balances.map((x) => Math.abs(x.balance)));
   const current = MODES.find((m) => m.id === mode)!;
   const names = Object.fromEntries(trip.seats.map((s) => [s.id, s.displayName]));
@@ -81,6 +88,8 @@ export default async function Cuentas({
               transfer={{ ...t, pendingAmount: b.pending.find((p) => p.id === t.pendingSettlementId)?.baseAmount }}
               mySeatId={b.mySeatId}
               names={names}
+              myHandles={myHandles}
+              theirHandles={handlesOf(t.to)}
               initiallyOpen={t === openKey}
             />
           ))}
@@ -101,6 +110,8 @@ export default async function Cuentas({
                 transfer={t}
                 mySeatId={b.mySeatId}
                 names={names}
+                myHandles={myHandles}
+                theirHandles={handlesOf(t.to)}
               />
             ))}
           </ul>

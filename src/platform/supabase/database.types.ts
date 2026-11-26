@@ -165,6 +165,32 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"payout_handles": {
+                  Row: {
+                    "handles": NonNullable<Json>,"seat_id": string,"trip_id": string,"updated_at": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "handles"?: NonNullable<Json>,"seat_id": string,"trip_id": string,"updated_at"?: string
+                  }
+                  Update: {
+                    "handles"?: NonNullable<Json>,"seat_id"?: string,"trip_id"?: string,"updated_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "payout_handles_seat_id_fkey"
+      columns: ["seat_id"]
+isOneToOne: true
+      referencedRelation: "seats"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "payout_handles_trip_id_fkey"
+      columns: ["trip_id"]
+isOneToOne: false
+      referencedRelation: "trips"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"plan_snapshots": {
                   Row: {
                     "frozen_at": string,"ledger_balances": NonNullable<Json>,"transfers": NonNullable<Json>,"trip_id": string

@@ -239,6 +239,24 @@ describe("Use cases wired through the composition root", () => {
     expect(!wrong.ok && wrong.error.code).toBe("forbidden");
   });
 
+  it("shares payment details only with people who owe you", async () => {
+    const { c, tripId, seat } = await setup();
+    const saved = await c.settlement.setMyHandles(DEMO_PRINCIPAL, tripId, [{ kind: "breb", value: "@mateo" }]);
+    expect(saved.ok && saved.value).toEqual([{ kind: "breb", value: "@mateo" }]);
+    const mine = await c.settlement.getMyHandles(DEMO_PRINCIPAL, tripId);
+    expect(mine.ok && mine.value).toEqual([{ kind: "breb", value: "@mateo" }]);
+
+    const invite = await c.membership.issueInvite(DEMO_PRINCIPAL, tripId, seat("Juli"));
+    if (!invite.ok) throw invite.error;
+    const juli = { id: PrincipalId("guest-juli"), kind: "guest" as const };
+    await c.membership.claimWithInvite(tripId, invite.value.token, juli);
+    // In the Cartagena plan Juli owes Mateo, so she sees how to pay him; Mateo owes nobody.
+    const forJuli = await c.settlement.getHandlesToPay(juli.id, tripId);
+    expect(forJuli.ok && forJuli.value).toEqual([{ seatId: seat("Mateo"), handles: [{ kind: "breb", value: "@mateo" }] }]);
+    const forMateo = await c.settlement.getHandlesToPay(DEMO_PRINCIPAL, tripId);
+    expect(forMateo.ok && forMateo.value).toEqual([]);
+  });
+
   it("joins through the generic link: pick a name, wait, get approved", async () => {
     const { c, tripId, seat } = await setup();
     const link = await c.membership.issueJoinLink(DEMO_PRINCIPAL, tripId);

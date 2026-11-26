@@ -207,6 +207,23 @@ export async function decideClaimAction(tripId: string, seatId: string, approve:
   return { ok: true };
 }
 
+/** "Cómo te pagan": my payment details for this trip. */
+export async function saveHandlesAction(
+  tripId: string,
+  handles: Array<{ kind: string; value: string }>,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const { id: principal } = await requirePrincipal();
+  const c = await getContainer();
+  const r = await c.settlement.setMyHandles(
+    principal,
+    TripId(tripId),
+    (handles ?? []).slice(0, 10).map((h) => ({ kind: String(h.kind), value: String(h.value).slice(0, 200) })),
+  );
+  if (!r.ok) return { ok: false, message: r.error.message || COPY[r.error.code] };
+  revalidatePath(`/t/${tripId}`, "layout");
+  return { ok: true };
+}
+
 export async function signOutAction() {
   await signOut();
   redirect("/");

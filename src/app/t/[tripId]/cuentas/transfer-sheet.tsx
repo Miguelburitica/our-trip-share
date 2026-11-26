@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { cobroMessage, whatsappUrl } from "@/app/ui/cobro";
-import { fmt } from "@/app/ui/money";
+import { HANDLE_LABEL, handlesLine } from "@/app/ui/handles";
+import { fmt, plainAmount } from "@/app/ui/money";
 import { confirmSettlementAction, disputeSettlementAction, recordSettlementAction, type SettleResult } from "./actions";
 
 const METHODS = [
@@ -13,26 +14,11 @@ const METHODS = [
   ["bank", "Banco"],
 ] as const;
 
-const HANDLE_KEY = "ourshare:handle";
-
-function readHandle() {
-  try {
-    return localStorage.getItem(HANDLE_KEY) ?? "";
-  } catch {
-    return "";
-  }
-}
 const noSubscribe = () => () => {};
 /** Browser-only values without a hydration mismatch: the server snapshot is "". */
 const useBrowser = (read: () => string) => useSyncExternalStore(noSubscribe, read, () => "");
 
-function writeHandle(v: string) {
-  try {
-    localStorage.setItem(HANDLE_KEY, v);
-  } catch {
-    // Private mode or blocked storage: the handle just isn't remembered.
-  }
-}
+type Handle = { kind: string; value: string };
 
 export interface SheetTransfer {
   from: string;
@@ -56,6 +42,10 @@ export function TransferRow(props: {
   mySeatId: string;
   /** Display names; "Tú" is resolved here. */
   names: Record<string, string>;
+  /** My saved "cómo me pagan", for the cobro message. */
+  myHandles: Handle[];
+  /** The receiver's details when I owe them (privacy: only debtors get them). */
+  theirHandles: Handle[] | null;
   initiallyOpen?: boolean;
 }) {
   const { transfer: t, mySeatId, names } = props;
@@ -121,15 +111,15 @@ function SheetBody(props: {
   currency: string;
   transfer: SheetTransfer;
   names: Record<string, string>;
+  myHandles: Handle[];
+  theirHandles: Handle[] | null;
   collecting: boolean;
   close: () => void;
 }) {
   const { transfer: t, names, collecting } = props;
   const other = collecting ? names[t.from] : names[t.to];
-  const storedHandle = useBrowser(readHandle);
   const origin = useBrowser(() => window.location.origin);
-  const [edited, setHandle] = useState<string | null>(null);
-  const handle = edited ?? storedHandle;
+  const [copiedHandle, setCopiedHandle] = useState<number | null>(null);
   const [method, setMethod] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -152,7 +142,7 @@ function SheetBody(props: {
       tripName: props.tripName,
       amount: t.amount,
       currency: props.currency,
-      handle,
+      handle: handlesLine(props.myHandles),
       detailUrl: `${origin}/t/${props.tripId}/cuentas`,
     });
 
@@ -218,21 +208,20 @@ function SheetBody(props: {
         </p>
       ) : collecting ? (
         <>
-          <label className="flex flex-col gap-1.5">
-            <span className="px-1 text-[15px] font-semibold">Tu llave o número (opcional)</span>
-            <input
-              value={handle}
-              onChange={(e) => setHandle(e.target.value)}
-              onBlur={() => writeHandle(handle.trim())}
-              placeholder="Bre-B @mateo o Nequi 300…"
-              maxLength={60}
-              className="h-[54px] w-full rounded-2xl bg-tint px-4 text-[17px] placeholder:text-muted outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-            />
-            <span className="px-1 text-[13px] text-muted">Va en el mensaje. Solo se guarda en este teléfono.</span>
-          </label>
+          {props.myHandles.length > 0 ? (
+            <p className="rounded-2xl bg-tint px-4 py-3 text-[14px]">
+              <span className="font-semibold">Va en el mensaje:</span> {handlesLine(props.myHandles)}{" "}
+              <a href={`/t/${props.tripId}/viaje#pagos`} className="font-semibold text-accent-text">
+                Cambiar
+              </a>
+            </p>
+          ) : (
+            <a href={`/t/${props.tripId}/viaje#pagos`} className="rounded-2xl bg-tint px-4 py-3 text-[14px]">
+              <span className="font-semibold text-accent-text">Agrega cómo te pagan</span> (Bre-B, Nequi…) para que vaya en el mensaje.
+            </a>
+          )}
           <a
             href={whatsappUrl(message())}
-            onClick={() => writeHandle(handle.trim())}
             target="_blank"
             rel="noreferrer"
             className="flex min-h-14 items-center justify-center rounded-full bg-accent text-[17px] font-semibold text-white"
@@ -262,13 +251,37 @@ function SheetBody(props: {
           <button
             type="button"
             onClick={async () => {
-              await navigator.clipboard?.writeText(String(t.amount));
+              await navigator.clipboard?.writeText(plainAmount(t.amount, props.currency));
               setCopied(true);
             }}
             className="-mt-2 min-h-11 text-[15px] font-semibold text-accent-text"
           >
             {copied ? "Monto copiado" : "Copiar monto"}
           </button>
+          {props.theirHandles && props.theirHandles.length > 0 ? (
+            <ul className="flex flex-col rounded-3xl bg-surface px-4 py-1 shadow-card">
+              {props.theirHandles.map((h, i) => (
+                <li key={i} className="flex min-h-[54px] items-center gap-3">
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="text-[13px] text-muted">{HANDLE_LABEL[h.kind] ?? h.kind}</span>
+                    <span className="truncate text-[15px] font-semibold">{h.value}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await navigator.clipboard?.writeText(h.value);
+                      setCopiedHandle(i);
+                    }}
+                    className="min-h-10 rounded-full bg-tint px-4 text-[13px] font-semibold"
+                  >
+                    {copiedHandle === i ? "Copiado" : "Copiar"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="rounded-2xl bg-tint px-4 py-3 text-[14px] text-muted">{other} aún no ha agregado cómo le pagan. Pregúntale por WhatsApp.</p>
+          )}
           <span className="px-1 text-[15px] font-semibold">¿Cómo le pagaste?</span>
           {methodPicker}
           <button type="button" disabled={!method || pending} onClick={record} className="min-h-14 rounded-full bg-accent text-[17px] font-semibold text-white disabled:bg-tint-2 disabled:text-muted">

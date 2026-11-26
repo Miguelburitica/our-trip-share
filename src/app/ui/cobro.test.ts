@@ -6,12 +6,12 @@ describe("cobroMessage", () => {
 
   it("greets by first name and states the amount, handle and detail link", () => {
     expect(cobroMessage({ ...base, handle: " @mateo " })).toBe(
-      "Hola Juli, de *Cartagena* te toca pasarme $641.000.\nMi llave: @mateo\nDetalle: https://x/t/1/cuentas",
+      "Hola Juli, de *Cartagena* te toca pasarme $641.000.\nPara pagarme: @mateo\nDetalle: https://x/t/1/cuentas",
     );
   });
 
   it("leaves the handle line out when there is none", () => {
-    expect(cobroMessage({ ...base, handle: "  " })).not.toContain("llave");
+    expect(cobroMessage({ ...base, handle: "  " })).not.toContain("pagarme");
   });
 
   it("encodes the message for wa.me", () => {

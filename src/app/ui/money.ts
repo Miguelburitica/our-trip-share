@@ -27,6 +27,12 @@ export function amountInput(units: number, currency: string): string {
   return (units / 10 ** exp).toFixed(exp);
 }
 
+/** For pasting into a bank or wallet app: no thousands separators ("641000", "12.50"). */
+export function plainAmount(units: number, currency: string): string {
+  const exp = exponentOf(currency);
+  return exp === 0 ? String(units) : (units / 10 ** exp).toFixed(exp);
+}
+
 const dayFormat = new Intl.DateTimeFormat("es-CO", { weekday: "long", day: "numeric", timeZone: "America/Bogota" });
 
 export function dayLabel(iso: string): string {

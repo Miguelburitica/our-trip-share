@@ -16,7 +16,7 @@ export function cobroMessage(input: {
   const handle = input.handle?.trim();
   return [
     `Hola ${first}, de *${input.tripName}* te toca pasarme ${fmt(input.amount, input.currency)}.`,
-    handle ? `Mi llave: ${handle}` : null,
+    handle ? `Para pagarme: ${handle}` : null,
     `Detalle: ${input.detailUrl}`,
   ]
     .filter(Boolean)
