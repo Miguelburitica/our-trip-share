@@ -53,7 +53,10 @@ openspec/          specs (source of truth for behavior) and changes (proposals, 
 6. **Guests are Supabase anonymous users.** A guest is a real auth principal with RLS like everyone else, and can be upgraded to an account later.
 7. **The server is the only writer.** Repositories use the service-role key on the server and save whole aggregates through RPCs with optimistic versions (`save_trip`, `save_expense`); trip use cases retry on a conflict. RLS keeps guarding direct access with the publishable key.
 8. **No sign-up wall.** Creating a trip or opening a personal link signs in anonymously; "Entrar" uses a 6-digit email code; "Guarda tu acceso" attaches an email to the same principal.
-9. **In-memory adapters are first-class.** Domain and application tests run with no database. Local dev can run without Docker (`DATA_BACKEND=memory`).
+9. **Joining links.** Personal links store only a token hash and work once; re-sending one for a seat in use moves the seat when the new link is opened (new phone). The trip's generic link (QR) keeps its token in clear so it can be shown again; it only lets people *ask* for a seat, which an admin approves. Linking RPCs are not callable by clients.
+10. **Private by default.** Payment details (`payout_handles`) and "Tu saldo cambió" notices are readable only by their own seat through the API; the app shows someone's payment details only to people who owe them. Receipt photos live in a private bucket behind short-lived signed URLs.
+11. **Abandoned guests are cleaned up.** `cleanup_abandoned_guests()` runs daily (pg_cron) and removes anonymous users older than 7 days that never got a seat, withdrawing their pending requests first. Deleting a user never deletes a seat.
+12. **In-memory adapters are first-class.** Domain and application tests run with no database. Local dev can run without Docker (`DATA_BACKEND=memory`).
 
 ## Testing
 - **Domain:** Vitest unit tests, fast and exhaustive on money rules.
