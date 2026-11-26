@@ -77,3 +77,18 @@ Quick add SHALL preselect the participants of the last two expenses when both ar
 #### Scenario: Deleting someone else's group
 - **WHEN** Leo, a plain member, tries to delete the "Parejas" group Ana created
 - **THEN** it is rejected as forbidden
+
+### Requirement: Adjust each person's share after the fact
+The expense detail SHALL show who paid, each person's share (the viewer's highlighted), the split method and the history. Any member SHALL be able to edit the split of a complete base-currency expense: include or exclude people, type exact amounts for some, and have the rest split equally among the others. The edit SHALL be saved only when the amounts add up to the total, as an equal split when nobody's amount was typed and as exact amounts otherwise, guarded by the money version. A single-payer expense MAY change its total in the same edit.
+
+#### Scenario: Ana only had a soup
+- **WHEN** Ana edits a 184.000 dinner split among 4 and types 30.000 for herself
+- **THEN** the other three are shown 51.334, 51.333 and 51.333, the expense saves as exact amounts, the history shows the change, and settled members whose share moved get a "Tu saldo cambió" notice
+
+#### Scenario: Amounts don't add up
+- **WHEN** every included person has a typed amount and they sum to less or more than the total
+- **THEN** the editor shows "Faltan $X por repartir" or "Te pasaste por $X" and doesn't save
+
+#### Scenario: Someone else edited first
+- **WHEN** the expense's money version changed since the editor opened
+- **THEN** saving is rejected with "Alguien editó este gasto mientras tanto"

@@ -126,6 +126,32 @@ describe("Use cases wired through the composition root", () => {
     }
   });
 
+  it("edits a split to exact amounts after the fact and keeps the history", async () => {
+    const { c, tripId, seat } = await setup();
+    const dinner = await c.ledger.recordExpense(DEMO_PRINCIPAL, tripId, {
+      currency: "COP",
+      amount: 184_000,
+      title: "Cena",
+      split: { method: "equal", participants: [seat("Mateo"), seat("Ana"), seat("Juli")] },
+    });
+    if (!dinner.ok) throw dinner.error;
+    const id = dinner.value.expense.id;
+    // Ana only had a soup: 30.000; the other two split the rest.
+    const edited = await c.ledger.editExpenseMoney(DEMO_PRINCIPAL, tripId, id, 1, {
+      currency: "COP",
+      amount: 184_000,
+      split: { method: "exact", shares: [{ seatId: seat("Mateo"), amount: 77_000 }, { seatId: seat("Ana"), amount: 30_000 }, { seatId: seat("Juli"), amount: 77_000 }] },
+    });
+    if (!edited.ok) throw edited.error;
+    const detail = await c.ledger.getExpense(DEMO_PRINCIPAL, tripId, id);
+    if (!detail.ok) throw detail.error;
+    expect(detail.value.splitMethod).toBe("exact");
+    expect(detail.value.shares.find((s) => s.seatId === seat("Ana"))!.amount).toBe(30_000);
+    expect(detail.value.history.map((h) => h.kind)).toEqual(["created", "money_changed"]);
+    const stale = await c.ledger.editExpenseMoney(DEMO_PRINCIPAL, tripId, id, 1, { currency: "COP", amount: 1_000 });
+    expect(!stale.ok && stale.error.code).toBe("conflict");
+  });
+
   it("offers quick-add presets: same as last, and saved groups shared by the trip", async () => {
     const { c, tripId, seat } = await setup();
     const before = await c.ledger.getQuickAddDefaults(DEMO_PRINCIPAL, tripId);

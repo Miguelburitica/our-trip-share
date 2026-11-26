@@ -7,7 +7,7 @@ import { CATEGORIES, type Category } from "@/contexts/expense-ledger/domain/expe
 import { requirePrincipal, signOut } from "@/composition/auth";
 import { getContainer } from "@/composition/server";
 import { ERROR_COPY as COPY } from "@/app/ui/copy";
-import { NoticeId, SeatId, SplitGroupId, TripId } from "@/shared-kernel/ids";
+import { ExpenseId, NoticeId, SeatId, SplitGroupId, TripId } from "@/shared-kernel/ids";
 
 export type ActionResult =
   | { ok: true; warnings: string[] }
@@ -48,6 +48,47 @@ export async function recordExpenseAction(input: {
   if (!result.ok) return { ok: false, message: result.error.message || COPY[result.error.code] };
   revalidatePath(`/t/${input.tripId}`, "layout");
   return { ok: true, warnings: result.value.warnings.map((w) => WARNING_COPY[w.code]) };
+}
+
+/**
+ * "Editar reparto": a new total and who owes what. Equal splits are sent as equal (so later total
+ * changes keep rebalancing); anything adjusted by hand is sent as exact amounts. The version guards
+ * against two people editing at once.
+ */
+export async function editSplitAction(input: {
+  tripId: string;
+  expenseId: string;
+  expectedVersion: number;
+  amount: number;
+  split: { method: "equal"; participants: string[] } | { method: "exact"; shares: Array<{ seatId: string; amount: number }> };
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const { id: principal } = await requirePrincipal();
+  const c = await getContainer();
+  const tripId = TripId(input.tripId);
+  const current = await c.ledger.getExpense(principal, tripId, ExpenseId(String(input.expenseId)));
+  if (!current.ok) return { ok: false, message: current.error.message || COPY[current.error.code] };
+  const trip = await c.membership.getTrip(principal, tripId);
+  if (!trip.ok) return { ok: false, message: COPY[trip.error.code] };
+  // Editing a foreign-currency expense would need its rate again; quick add only records base-currency ones.
+  if (current.value.currency !== trip.value.baseCurrency) return { ok: false, message: "Este gasto está en otra moneda; aún no se puede editar aquí" };
+  const split =
+    input.split?.method === "exact"
+      ? {
+          method: "exact" as const,
+          shares: (input.split.shares ?? []).map((s) => ({ seatId: SeatId(String(s.seatId)), amount: Number(s.amount) })),
+        }
+      : { method: "equal" as const, participants: (input.split?.participants ?? []).map((id) => SeatId(String(id))) };
+  const r = await c.ledger.editExpenseMoney(principal, tripId, ExpenseId(String(input.expenseId)), Number(input.expectedVersion), {
+    currency: current.value.currency,
+    amount: Number(input.amount),
+    split,
+  });
+  if (!r.ok) {
+    if (r.error.code === "conflict") return { ok: false, message: "Alguien editó este gasto mientras tanto. Recarga para ver lo último." };
+    return { ok: false, message: r.error.message || COPY[r.error.code] };
+  }
+  revalidatePath(`/t/${input.tripId}`, "layout");
+  return { ok: true };
 }
 
 export type ScanResult =

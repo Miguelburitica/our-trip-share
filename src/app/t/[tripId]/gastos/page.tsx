@@ -51,15 +51,17 @@ export default async function Gastos({
           <h2 className="px-1 text-sm font-semibold text-muted">{dayLabel(items[0].occurredAt)}</h2>
           <ul className="rounded-[22px] bg-surface px-4.5 py-1 shadow-card">
             {items.map((e) => (
-              <li key={e.id} className="flex min-h-[62px] items-center justify-between gap-3">
+              <li key={e.id} className="relative flex min-h-[62px] items-center justify-between gap-3">
                 <span className="flex min-w-0 flex-col">
-                  <span className="truncate text-[15px] font-semibold">{expenseTitle(e)}</span>
+                  <Link href={`/t/${tripId}/gastos/${e.id}`} className="truncate text-[15px] font-semibold after:absolute after:inset-0">
+                    {expenseTitle(e)}
+                  </Link>
                   <span className="text-[13px] text-muted">
                     {nameOf(e.payers[0]?.seatId ?? e.createdBy)}
                     {e.receiptCount > 0 && (
                       <>
                         {" · "}
-                        <a href={`/t/${tripId}/soporte/${e.id}`} target="_blank" rel="noreferrer" className="font-semibold text-accent-text">
+                        <a href={`/t/${tripId}/soporte/${e.id}`} target="_blank" rel="noreferrer" className="relative z-10 font-semibold text-accent-text">
                           Ver factura
                         </a>
                       </>

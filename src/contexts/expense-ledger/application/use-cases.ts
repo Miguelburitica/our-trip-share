@@ -92,6 +92,12 @@ export interface QuickAddDefaultsDTO {
   groups: SplitGroupDTO[];
 }
 
+export interface ExpenseDetailDTO extends ExpenseDTO {
+  splitMethod: "equal" | "exact" | null;
+  notes: string | null;
+  history: Array<{ at: string; by: SeatId; kind: string; moneyVersion: number }>;
+}
+
 /** Application service for the expense-ledger context. */
 export class ExpenseLedgerUseCases {
   constructor(private readonly deps: ExpenseLedgerDeps) {}
@@ -249,6 +255,22 @@ export class ExpenseLedgerUseCases {
         console.error("receipt reader failed", error);
       }
       return { receiptPath, read: reading !== null, ...prefillFromReading(reading, ctx.trip.baseCurrency) };
+    });
+  }
+
+  /** One expense with its split method and full history (Gastos › detalle). */
+  getExpense(principalId: PrincipalId, tripId: TripId, expenseId: ExpenseId): Promise<Result<ExpenseDetailDTO>> {
+    return attempt(async () => {
+      const ctx = await this.context(principalId, tripId);
+      const expense = await this.load(tripId, expenseId);
+      if (expense.status === "deleted") throw notFound("Este gasto fue borrado");
+      const p = expense.toPrimitives();
+      return {
+        ...toExpenseDTO(expense, ctx.actor),
+        splitMethod: p.money?.splitMethod ?? null,
+        notes: p.notes,
+        history: p.history.map((h) => ({ at: h.at.toISOString(), by: h.by, kind: h.kind, moneyVersion: h.moneyVersion })),
+      };
     });
   }
 

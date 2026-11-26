@@ -1,9 +1,30 @@
-import { isCurrencyCode } from "@/shared-kernel/money/currency";
+import { CURRENCIES, isCurrencyCode } from "@/shared-kernel/money/currency";
 import { formatMoney } from "@/shared-kernel/money/money";
 
 /** "$184.000" for COP; falls back to plain numbers for unknown codes. */
 export function fmt(units: number, currency: string): string {
   return isCurrencyCode(currency) ? formatMoney(units, currency) : String(units);
+}
+
+const exponentOf = (currency: string) => (isCurrencyCode(currency) ? CURRENCIES[currency].exponent : 0);
+
+/** What a person typed in an amount field → stored units, or null. "30.000" in COP is 30000. */
+export function parseAmount(text: string, currency: string): number | null {
+  const exp = exponentOf(currency);
+  if (exp === 0) {
+    const digits = text.replace(/\D/g, "");
+    return digits ? Number(digits) : null;
+  }
+  const m = /^(\d*)(?:[.,](\d*))?$/.exec(text.replace(/\s/g, ""));
+  if (!m || (!m[1] && !m[2])) return null;
+  return Number(m[1] || "0") * 10 ** exp + Number((m[2] ?? "").padEnd(exp, "0").slice(0, exp) || "0");
+}
+
+/** Units → what goes in an amount field ("30.000" in COP, "12.50" in USD). */
+export function amountInput(units: number, currency: string): string {
+  const exp = exponentOf(currency);
+  if (exp === 0) return units.toLocaleString("es-CO");
+  return (units / 10 ** exp).toFixed(exp);
 }
 
 const dayFormat = new Intl.DateTimeFormat("es-CO", { weekday: "long", day: "numeric", timeZone: "America/Bogota" });
