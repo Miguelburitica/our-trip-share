@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { fmt } from "@/app/ui/money";
 import { loadTrip } from "../data";
+import { TransferRow } from "./transfer-sheet";
 
 const MODES = [
   { id: "simplified", label: "Simplificado", hint: "Las menos transferencias posibles." },
@@ -13,9 +14,9 @@ export default async function Cuentas({
   searchParams,
 }: {
   params: Promise<{ tripId: string }>;
-  searchParams: Promise<{ modo?: string }>;
+  searchParams: Promise<{ modo?: string; abrir?: string }>;
 }) {
-  const [{ tripId: raw }, { modo }] = await Promise.all([params, searchParams]);
+  const [{ tripId: raw }, { modo, abrir }] = await Promise.all([params, searchParams]);
   const { c, principal, tripId, trip, nameOf } = await loadTrip(raw);
   const mode = MODES.find((m) => m.id === modo)?.id ?? trip.settleMode;
   // Previewing hub mode uses the owner as hub until the trip picks one.
@@ -24,14 +25,28 @@ export default async function Cuentas({
   const b = result.value;
   const max = Math.max(1, ...b.balances.map((x) => Math.abs(x.balance)));
   const current = MODES.find((m) => m.id === mode)!;
+  const names = Object.fromEntries(trip.seats.map((s) => [s.id, s.displayName]));
+  // ?abrir=<seat> (from Inicio's Cobrar/Pagar) opens my transfer with that person.
+  // Pending payments that no longer match a plan row (the plan moved after they were sent) still
+  // need the receiver's answer, so they get their own list.
+  const looseRows = b.pending
+    .filter((p) => (p.from === b.mySeatId || p.to === b.mySeatId) && !b.plan.some((t) => t.pendingSettlementId === p.id))
+    .map((p) => ({ from: p.from, to: p.to, amount: p.baseAmount, pendingSettlementId: p.id, pendingAmount: p.baseAmount }));
+  const openKey = b.plan.find((t) => (t.from === b.mySeatId && t.to === abrir) || (t.to === b.mySeatId && t.from === abrir));
 
   return (
     <main className="flex flex-col gap-6 px-5 pt-14 pb-36">
       <header className="flex flex-col gap-1.5 px-1">
         <h1 className="text-3xl font-bold tracking-tight">Cuentas</h1>
         <p className="text-[15px] text-muted">
-          {b.myBalance >= 0 ? "Te deben " : "Debes "}
-          <strong className="font-bold text-ink">{fmt(Math.abs(b.myBalance), b.baseCurrency)}</strong>
+          {b.myBalance === 0 ? (
+            "Estás a paz y salvo"
+          ) : (
+            <>
+              {b.myBalance > 0 ? "Te deben " : "Debes "}
+              <strong className="font-bold text-ink">{fmt(Math.abs(b.myBalance), b.baseCurrency)}</strong>
+            </>
+          )}
         </p>
       </header>
 
@@ -58,21 +73,39 @@ export default async function Cuentas({
         <h2 className="px-1 text-sm font-semibold text-muted">{b.plan.length} transferencias</h2>
         <ul className="rounded-3xl bg-surface px-4.5 py-1 shadow-card">
           {b.plan.map((t) => (
-            <li key={`${t.from}-${t.to}`} className="flex min-h-[58px] items-center gap-3">
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span className="text-[15px] font-semibold">
-                  {nameOf(t.from)} → {nameOf(t.to)}
-                </span>
-                <span className="text-[13px] text-muted">
-                  {t.pendingSettlementId ? "Dice que ya pagó · por confirmar" : t.to === b.mySeatId ? "Te paga a ti" : t.from === b.mySeatId ? "Tú pagas" : "Entre ellos"}
-                </span>
-              </span>
-              <span className="tabular text-[15px] font-semibold">{fmt(t.amount, b.baseCurrency)}</span>
-            </li>
+            <TransferRow
+              key={`${t.from}-${t.to}`}
+              tripId={tripId}
+              tripName={trip.name}
+              currency={b.baseCurrency}
+              transfer={{ ...t, pendingAmount: b.pending.find((p) => p.id === t.pendingSettlementId)?.baseAmount }}
+              mySeatId={b.mySeatId}
+              names={names}
+              initiallyOpen={t === openKey}
+            />
           ))}
           {b.plan.length === 0 && <li className="py-4 text-muted">Todos están a paz y salvo.</li>}
         </ul>
       </section>
+
+      {looseRows.length > 0 && (
+        <section aria-label="Por confirmar" className="flex flex-col gap-2.5">
+          <h2 className="px-1 text-sm font-semibold text-muted">Por confirmar</h2>
+          <ul className="rounded-3xl bg-surface px-4.5 py-1 shadow-card">
+            {looseRows.map((t) => (
+              <TransferRow
+                key={t.pendingSettlementId}
+                tripId={tripId}
+                tripName={trip.name}
+                currency={b.baseCurrency}
+                transfer={t}
+                mySeatId={b.mySeatId}
+                names={names}
+              />
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section aria-label="Saldo por persona" className="flex flex-col gap-3 px-1">
         <h2 className="text-sm font-semibold text-muted">Saldo por persona</h2>

@@ -14,6 +14,7 @@ export default async function Inicio({ params }: { params: Promise<{ tripId: str
   const owedToMe = b.myBalance > 0;
   const payers = b.plan.filter((t) => t.to === b.mySeatId).map((t) => nameOf(t.from));
   const myDebts = b.plan.filter((t) => t.from === b.mySeatId);
+  const mine = owedToMe ? b.plan.filter((t) => t.to === b.mySeatId) : myDebts;
   const pendingForMe = b.pending.filter((p) => p.to === b.mySeatId);
   const drafts = expenses.value.filter((e) => e.status === "draft");
   const lastDay = expenses.value[0] ? dayKey(expenses.value[0].occurredAt) : null;
@@ -45,9 +46,14 @@ export default async function Inicio({ params }: { params: Promise<{ tripId: str
           </span>
         </div>
         <div className="flex items-center gap-5">
-          <Link href={`${base}/cuentas`} className="flex min-h-[50px] items-center rounded-full bg-accent px-7 text-base font-semibold text-white">
-            {owedToMe ? "Cobrar" : "Pagar"}
-          </Link>
+          {mine.length > 0 && (
+            <Link
+              href={mine.length === 1 ? `${base}/cuentas?abrir=${owedToMe ? mine[0].from : mine[0].to}` : `${base}/cuentas`}
+              className="flex min-h-[50px] items-center rounded-full bg-accent px-7 text-base font-semibold text-white"
+            >
+              {owedToMe ? "Cobrar" : "Pagar"}
+            </Link>
+          )}
           <Link href={`${base}/cuentas`} className="flex min-h-11 items-center text-[15px] font-semibold">
             Ver cuentas
           </Link>
