@@ -66,3 +66,18 @@ Warnings SHALL NOT block saving.
 #### Scenario: Personal expense
 - **WHEN** Mateo records 30.000 COP paid by Mateo with only Mateo as participant
 - **THEN** the expense is saved with a "personal" warning and no balance changes
+
+### Requirement: Receipt photo in quick add
+Quick add SHALL let a member attach a photo of the receipt ("Foto de la factura"). The photo SHALL be stored privately under its trip and only attached to expenses of that trip; members SHALL open it through a short-lived link. When a receipt reader is configured, the photo SHALL be read to pre-fill the amount, a title from the merchant, and the category; the member reviews and saves. A receipt in another currency than the trip's, an unreadable photo or a failing reader SHALL NOT block the expense: the photo stays attached and the member types the amount.
+
+#### Scenario: Reading a bar receipt
+- **WHEN** Mateo picks a photo of a Bar Bajo receipt whose total to pay is $96.000 including the tip
+- **THEN** quick add shows $96.000, the category Tragos and "Factura · Bar Bajo", and saving records the expense with the photo attached
+
+#### Scenario: Reader unavailable
+- **WHEN** no reader is configured or it fails
+- **THEN** the photo is still attached and quick add asks for the amount
+
+#### Scenario: Photo from another trip
+- **WHEN** an expense is submitted with a receipt path stored under a different trip
+- **THEN** it is rejected with a validation error

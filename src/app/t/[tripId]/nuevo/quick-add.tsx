@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { fmt } from "@/app/ui/money";
-import { deleteSplitGroupAction, recordExpenseAction, saveSplitGroupAction } from "../actions";
+import { deleteSplitGroupAction, recordExpenseAction, saveSplitGroupAction, scanReceiptAction } from "../actions";
 
 const CATEGORIES = [
   ["comida", "Comida"],
@@ -36,6 +36,23 @@ interface Presets {
   groups: Group[];
 }
 
+/** Phone photos are 3–12MB: send a 1600px JPEG instead (enough to read, fast on mobile data). */
+async function shrinkPhoto(file: File): Promise<File> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.82));
+    if (blob) return new File([blob], "factura.jpg", { type: "image/jpeg" });
+  } catch {
+    // Formats the browser can't decode go up as they are; the server checks type and size.
+  }
+  return file;
+}
+
 const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x) => b.includes(x));
 const andList = (xs: string[]) => new Intl.ListFormat("es", { type: "conjunction" }).format(xs);
 
@@ -47,6 +64,9 @@ export function QuickAdd(props: { tripId: string; currency: string; mySeatId: st
   const [groups, setGroups] = useState<Group[]>(props.presets.groups);
   const [naming, setNaming] = useState<string | null>(null);
   const [groupError, setGroupError] = useState<string | null>(null);
+  const [receipt, setReceipt] = useState<{ path: string; title: string | null; note: string | null } | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const photoInput = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<null | { kind: "saved"; warnings: string[] } | { kind: "error"; message: string }>(null);
   const [pending, startTransition] = useTransition();
 
@@ -93,6 +113,28 @@ export function QuickAdd(props: { tripId: string; currency: string; mySeatId: st
               ? `Todos menos ${andList(missing)}`
               : `Entre ${n} personas`;
 
+  const scan = async (file: File) => {
+    setStatus(null);
+    setScanning(true);
+    try {
+      const form = new FormData();
+      form.set("tripId", props.tripId);
+      form.set("photo", await shrinkPhoto(file));
+      const r = await scanReceiptAction(form);
+      if (!r.ok) {
+        setStatus({ kind: "error", message: r.message });
+        return;
+      }
+      setReceipt({ path: r.receiptPath, title: r.title, note: r.note ?? (r.read ? null : "Foto adjunta. Escribe el monto.") });
+      if (r.amount) setDigits(String(r.amount));
+      if (r.category) setCategory(r.category);
+    } catch {
+      setStatus({ kind: "error", message: "No se pudo subir la foto. Intenta de nuevo." });
+    } finally {
+      setScanning(false);
+    }
+  };
+
   const pick = (ids: string[]) => {
     setStatus(null);
     setNaming(null);
@@ -123,17 +165,20 @@ export function QuickAdd(props: { tripId: string; currency: string; mySeatId: st
         category,
         payerSeatId: payer.id,
         participantIds: selected,
+        title: receipt?.title ?? undefined,
+        receiptPath: receipt?.path ?? null,
       });
       if (result.ok) {
         setStatus({ kind: "saved", warnings: result.warnings });
         setDigits("");
+        setReceipt(null);
       } else {
         setStatus({ kind: "error", message: result.message });
       }
     });
 
   return (
-    <main className="fixed inset-0 z-30 mx-auto flex max-w-[480px] flex-col gap-4 overflow-y-auto bg-bg px-5 pt-5 pb-6 *:shrink-0 [@media(max-height:720px)]:gap-2.5 [@media(max-height:720px)]:pt-3 [@media(max-height:720px)]:pb-4">
+    <main className="fixed inset-0 z-30 mx-auto flex max-w-[480px] flex-col gap-4 overflow-y-auto bg-bg px-5 pt-5 pb-6 *:shrink-0 [@media(max-height:860px)]:gap-2.5 [@media(max-height:860px)]:pt-3 [@media(max-height:860px)]:pb-4">
       <header className="flex min-h-11 items-center justify-between">
         <Link href={`/t/${props.tripId}`} aria-label="Cerrar" className="flex size-11 items-center justify-center rounded-full bg-tint">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
@@ -145,14 +190,50 @@ export function QuickAdd(props: { tripId: string; currency: string; mySeatId: st
         <span className="flex min-h-11 items-center rounded-full bg-tint px-3.5 text-sm font-semibold">{props.currency}</span>
       </header>
 
-      <div className="flex flex-col items-center gap-1.5 py-2 [@media(max-height:720px)]:py-0">
-        <output aria-live="polite" className={`tabular text-[54px] leading-tight [@media(max-height:720px)]:text-[44px] font-bold tracking-tight ${amount ? "" : "text-[#b3a496]"}`}>
+      <div className="flex flex-col items-center gap-1.5 py-2 [@media(max-height:860px)]:py-0">
+        <output aria-live="polite" className={`tabular text-[54px] leading-tight [@media(max-height:860px)]:text-[44px] font-bold tracking-tight ${amount ? "" : "text-[#b3a496]"}`}>
           {fmt(amount, props.currency)}
         </output>
         {status?.kind === "saved" && status.warnings.length > 0 && (
           <span className="text-[13px] font-medium text-accent-text">{status.warnings.join(" · ")}</span>
         )}
         {status?.kind === "error" && <span role="alert" className="text-[13px] font-medium text-accent-text">{status.message}</span>}
+        <input
+          ref={photoInput}
+          type="file"
+          accept="image/*"
+          className="sr-only"
+          tabIndex={-1}
+          aria-hidden="true"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) void scan(file);
+          }}
+        />
+        {receipt ? (
+          <span className="flex max-w-full items-center gap-1 rounded-full bg-tint py-1 pr-1 pl-3.5 text-[13px] font-semibold">
+            <CameraIcon />
+            <span className="truncate">{receipt.title ? `Factura · ${receipt.title}` : "Factura adjunta"}</span>
+            <button type="button" aria-label="Quitar la factura" onClick={() => setReceipt(null)} className="flex size-7 flex-none items-center justify-center rounded-full">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden="true">
+                <path d="M18 6 6 18" />
+                <path d="m6 6 12 12" />
+              </svg>
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            disabled={scanning}
+            onClick={() => photoInput.current?.click()}
+            className="flex h-9 items-center gap-1.5 rounded-full bg-tint px-3.5 text-[13px] font-semibold disabled:opacity-60"
+          >
+            <CameraIcon />
+            {scanning ? "Leyendo la factura…" : "Foto de la factura"}
+          </button>
+        )}
+        {receipt?.note && !amount && <span className="text-[13px] font-medium text-accent-text">{receipt.note}</span>}
       </div>
 
       <div role="group" aria-label="Categoría" className="-mx-5 flex gap-2 overflow-x-auto px-5 [scrollbar-width:none]">
@@ -178,7 +259,7 @@ export function QuickAdd(props: { tripId: string; currency: string; mySeatId: st
         <span className="text-[15px] font-semibold">Pagó {payer.id === props.mySeatId ? "tú" : payer.name}</span>
       </button>
 
-      <section className="flex flex-col gap-3 rounded-3xl bg-surface p-4 shadow-card [@media(max-height:720px)]:gap-2 [@media(max-height:720px)]:py-3">
+      <section className="flex flex-col gap-3 rounded-3xl bg-surface p-4 shadow-card [@media(max-height:860px)]:gap-2 [@media(max-height:860px)]:py-3">
         <div className="flex items-baseline justify-between">
           <span className="text-[15px] font-semibold">{splitLabel}</span>
           <span className="tabular text-sm text-muted">{perPerson}</span>
@@ -261,9 +342,9 @@ export function QuickAdd(props: { tripId: string; currency: string; mySeatId: st
         {groupError && <span role="alert" className="text-[13px] font-medium text-accent-text">{groupError}</span>}
       </section>
 
-      <div role="group" aria-label="Teclado" className="mt-auto grid grid-cols-3 gap-1.5 [@media(max-height:720px)]:gap-1">
+      <div role="group" aria-label="Teclado" className="mt-auto grid grid-cols-3 gap-1.5 [@media(max-height:860px)]:gap-1">
         {KEYS.map((k) => (
-          <button key={k} type="button" onClick={() => press(k)} aria-label={k === "back" ? "Borrar" : k} className="flex h-12 items-center justify-center rounded-2xl text-2xl font-medium active:bg-tint [@media(max-height:720px)]:h-10">
+          <button key={k} type="button" onClick={() => press(k)} aria-label={k === "back" ? "Borrar" : k} className="flex h-12 items-center justify-center rounded-2xl text-2xl font-medium active:bg-tint [@media(max-height:860px)]:h-10">
             {k === "back" ? (
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M10 5a2 2 0 0 0-1.344.519l-6.328 5.74a1 1 0 0 0 0 1.481l6.328 5.741A2 2 0 0 0 10 19h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z" />
@@ -289,11 +370,20 @@ export function QuickAdd(props: { tripId: string; currency: string; mySeatId: st
           type="button"
           disabled={cannotSave}
           onClick={save}
-          className={`min-h-14 rounded-full text-[17px] font-semibold [@media(max-height:720px)]:min-h-12 ${cannotSave ? "bg-tint-2 text-muted" : "bg-accent text-white"}`}
+          className={`min-h-14 rounded-full text-[17px] font-semibold [@media(max-height:860px)]:min-h-12 ${cannotSave ? "bg-tint-2 text-muted" : "bg-accent text-white"}`}
         >
           {pending ? "Guardando…" : "Guardar"}
         </button>
       )}
     </main>
+  );
+}
+
+function CameraIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
+      <circle cx="12" cy="13" r="3" />
+    </svg>
   );
 }

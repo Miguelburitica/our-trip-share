@@ -148,6 +148,24 @@ describe.skipIf(!url || !secret)("Supabase repositories (local stack)", () => {
     expect(data).toEqual([{ seat_id: seats.get("Ana"), delta: -10_000, cause_title: "Helado" }]);
   });
 
+  it("stores receipt photos privately and serves them through signed URLs", async () => {
+    const scan = await c.ledger.scanReceipt(mateo.id, tripId, { bytes: new Uint8Array([0xff, 0xd8, 0xff]), mediaType: "image/jpeg" });
+    if (!scan.ok) throw scan.error;
+    const saved = await c.ledger.recordExpense(mateo.id, tripId, { currency: "COP", amount: 5_000, receiptPaths: [scan.value.receiptPath] });
+    if (!saved.ok) throw saved.error;
+    const link = await c.ledger.receiptUrl(mateo.id, tripId, saved.value.expense.id);
+    if (!link.ok) throw link.error;
+    const res = await fetch(link.value);
+    expect(res.status).toBe(200);
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(new Uint8Array([0xff, 0xd8, 0xff]));
+    if (publishable) {
+      const anon = createClient<Database>(url!, publishable, { auth: { persistSession: false } });
+      const direct = await anon.storage.from("receipts").download(scan.value.receiptPath);
+      expect(direct.error).not.toBeNull();
+    }
+    await db.storage.from("receipts").remove([scan.value.receiptPath]);
+  });
+
   it("saves, lists and deletes split groups", async () => {
     const pair = [seats.get("Ana")!, seats.get("Juli")!];
     const saved = await c.ledger.saveSplitGroup(mateo.id, tripId, { name: "Carro 1", seatIds: pair });

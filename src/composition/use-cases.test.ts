@@ -87,6 +87,45 @@ describe("Use cases wired through the composition root", () => {
     expect(after.ok && after.value).toEqual([]);
   });
 
+  it("scans a receipt: stores it, pre-fills from the reader, and attaches it on save", async () => {
+    const clock = fixedClock("2026-11-22T20:00:00-05:00");
+    const reader = { read: async () => ({ isReceipt: true, total: "96000", currency: "COP", merchant: "Bar Bajo", date: null, category: "tragos" }) };
+    const c = createMemoryContainer({ clock, ids: sequentialIds("id"), reader });
+    const tripId = await seedCartagena(c);
+    const photo = { bytes: new Uint8Array([1, 2, 3]), mediaType: "image/jpeg" as const };
+
+    const scan = await c.ledger.scanReceipt(DEMO_PRINCIPAL, tripId, photo);
+    if (!scan.ok) throw scan.error;
+    expect(scan.value).toMatchObject({ read: true, amount: 96_000, title: "Bar Bajo", category: "tragos", note: null });
+    expect(scan.value.receiptPath.startsWith(`${tripId}/`)).toBe(true);
+
+    const saved = await c.ledger.recordExpense(DEMO_PRINCIPAL, tripId, {
+      currency: "COP",
+      amount: scan.value.amount!,
+      title: scan.value.title,
+      receiptPaths: [scan.value.receiptPath],
+    });
+    if (!saved.ok) throw saved.error;
+    expect(saved.value.expense.receiptCount).toBe(1);
+    const url = await c.ledger.receiptUrl(DEMO_PRINCIPAL, tripId, saved.value.expense.id);
+    expect(url.ok && url.value).toMatch(/^data:image\/jpeg;base64,/);
+
+    const foreign = await c.ledger.recordExpense(DEMO_PRINCIPAL, tripId, { currency: "COP", amount: 1000, receiptPaths: ["other-trip/x.jpg"] });
+    expect(!foreign.ok && foreign.error.code).toBe("validation");
+  });
+
+  it("still attaches the photo when the reader fails or isn't configured", async () => {
+    const failing = { read: async () => { throw new Error("boom"); } };
+    for (const reader of [failing, null]) {
+      const c = createMemoryContainer({ ids: sequentialIds("id"), reader });
+      const tripId = await seedCartagena(c);
+      const scan = await c.ledger.scanReceipt(DEMO_PRINCIPAL, tripId, { bytes: new Uint8Array([1]), mediaType: "image/png" });
+      if (!scan.ok) throw scan.error;
+      expect(scan.value).toMatchObject({ read: false, amount: null });
+      expect(scan.value.receiptPath).toMatch(/\.png$/);
+    }
+  });
+
   it("offers quick-add presets: same as last, and saved groups shared by the trip", async () => {
     const { c, tripId, seat } = await setup();
     const before = await c.ledger.getQuickAddDefaults(DEMO_PRINCIPAL, tripId);

@@ -1,7 +1,9 @@
-import type { ExpenseRepository, SplitGroupRepository } from "@/contexts/expense-ledger/application/ports";
+import type { ExpenseRepository, ReceiptReader, ReceiptStore, SplitGroupRepository } from "@/contexts/expense-ledger/application/ports";
 import { ExpenseLedgerUseCases } from "@/contexts/expense-ledger/application/use-cases";
 import { InMemoryExpenseRepository } from "@/contexts/expense-ledger/infrastructure/in-memory-expense-repository";
+import { InMemoryReceiptStore } from "@/contexts/expense-ledger/infrastructure/in-memory-receipt-store";
 import { InMemorySplitGroupRepository } from "@/contexts/expense-ledger/infrastructure/in-memory-split-group-repository";
+import { SupabaseReceiptStore } from "@/contexts/expense-ledger/infrastructure/supabase-receipt-store";
 import { SupabaseExpenseRepository } from "@/contexts/expense-ledger/infrastructure/supabase-expense-repository";
 import { SupabaseSplitGroupRepository } from "@/contexts/expense-ledger/infrastructure/supabase-split-group-repository";
 import type { BalanceNoticeRepository, SettlementRepository } from "@/contexts/settlement/application/ports";
@@ -31,18 +33,26 @@ export interface Repositories {
   trips: TripRepository;
   expenses: ExpenseRepository & SeatUsage;
   splitGroups: SplitGroupRepository;
+  receipts: ReceiptStore;
   settlements: SettlementRepository & SettlementPresence & SeatUsage;
   notices: BalanceNoticeRepository;
+}
+
+export interface ContainerOptions {
+  clock?: Clock;
+  ids?: IdGenerator;
+  /** Reads receipt photos; null/absent attaches photos without reading them. */
+  reader?: ReceiptReader | null;
 }
 
 /**
  * Composition root. Builds every use case with its adapters. The backend only decides which
  * repositories plug in: in-process (tests, demo without Docker) or Supabase.
  */
-export function createContainer(repos: Repositories, opts: { clock?: Clock; ids?: IdGenerator } = {}): Container {
+export function createContainer(repos: Repositories, opts: ContainerOptions = {}): Container {
   const clock = opts.clock ?? systemClock;
   const ids = opts.ids ?? uuidGenerator;
-  const { trips, expenses, splitGroups, settlements, notices } = repos;
+  const { trips, expenses, splitGroups, receipts, settlements, notices } = repos;
   const settlement = new SettlementUseCases({
     settlements,
     notices,
@@ -67,6 +77,8 @@ export function createContainer(repos: Repositories, opts: { clock?: Clock; ids?
     ledger: new ExpenseLedgerUseCases({
       expenses,
       splitGroups,
+      receipts,
+      reader: opts.reader ?? null,
       membership: ledgerMembershipReader(trips),
       events: settlementListener(settlement),
       ids,
@@ -76,12 +88,13 @@ export function createContainer(repos: Repositories, opts: { clock?: Clock; ids?
   };
 }
 
-export function createMemoryContainer(opts: { clock?: Clock; ids?: IdGenerator } = {}): Container {
+export function createMemoryContainer(opts: ContainerOptions = {}): Container {
   return createContainer(
     {
       trips: new InMemoryTripRepository(),
       expenses: new InMemoryExpenseRepository(),
       splitGroups: new InMemorySplitGroupRepository(),
+      receipts: new InMemoryReceiptStore(),
       settlements: new InMemorySettlementRepository(),
       notices: new InMemoryBalanceNoticeRepository(),
     },
@@ -89,12 +102,13 @@ export function createMemoryContainer(opts: { clock?: Clock; ids?: IdGenerator }
   );
 }
 
-export function createSupabaseContainer(db: Db, opts: { clock?: Clock; ids?: IdGenerator } = {}): Container {
+export function createSupabaseContainer(db: Db, opts: ContainerOptions = {}): Container {
   return createContainer(
     {
       trips: new SupabaseTripRepository(db),
       expenses: new SupabaseExpenseRepository(db),
       splitGroups: new SupabaseSplitGroupRepository(db),
+      receipts: new SupabaseReceiptStore(db),
       settlements: new SupabaseSettlementRepository(db),
       notices: new SupabaseBalanceNoticeRepository(db),
     },

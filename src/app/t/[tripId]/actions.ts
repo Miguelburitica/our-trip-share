@@ -28,6 +28,7 @@ export async function recordExpenseAction(input: {
   title?: string;
   payerSeatId: string;
   participantIds: string[];
+  receiptPath?: string | null;
 }): Promise<ActionResult> {
   const { id: principal } = await requirePrincipal();
   const c = await getContainer();
@@ -42,10 +43,39 @@ export async function recordExpenseAction(input: {
     title: input.title?.slice(0, 80) || null,
     payers: [{ seatId: SeatId(String(input.payerSeatId)) }],
     split: { method: "equal", participants: (input.participantIds ?? []).map((id) => SeatId(String(id))) },
+    receiptPaths: input.receiptPath ? [String(input.receiptPath)] : [],
   });
   if (!result.ok) return { ok: false, message: result.error.message || COPY[result.error.code] };
   revalidatePath(`/t/${input.tripId}`, "layout");
   return { ok: true, warnings: result.value.warnings.map((w) => WARNING_COPY[w.code]) };
+}
+
+export type ScanResult =
+  | {
+      ok: true;
+      receiptPath: string;
+      read: boolean;
+      amount: number | null;
+      title: string | null;
+      category: string | null;
+      note: string | null;
+    }
+  | { ok: false; message: string };
+
+/** "Foto de la factura": uploads the (already downscaled) photo and reads it to pre-fill quick add. */
+export async function scanReceiptAction(formData: FormData): Promise<ScanResult> {
+  const { id: principal } = await requirePrincipal();
+  const tripId = String(formData.get("tripId") ?? "");
+  const photo = formData.get("photo");
+  if (!(photo instanceof File)) return { ok: false, message: "Elige una foto" };
+  const c = await getContainer();
+  const r = await c.ledger.scanReceipt(principal, TripId(tripId), {
+    bytes: new Uint8Array(await photo.arrayBuffer()),
+    mediaType: photo.type as "image/jpeg",
+  });
+  if (!r.ok) return { ok: false, message: r.error.message || COPY[r.error.code] };
+  const { receiptPath, read, amount, title, category, note } = r.value;
+  return { ok: true, receiptPath, read, amount, title, category, note };
 }
 
 export type GroupResult = { ok: true; group: { id: string; name: string; seatIds: string[]; canDelete: boolean } } | { ok: false; message: string };

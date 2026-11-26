@@ -1,5 +1,6 @@
 import type { ExpenseId, PrincipalId, SeatId, SplitGroupId, TripId } from "@/shared-kernel/ids";
 import type { Category, Expense, ExpenseEffect } from "../domain/expense";
+import type { ReceiptImage, ReceiptReading } from "../domain/receipt";
 import type { SplitGroup } from "../domain/split-group";
 import type { LedgerTripView } from "../domain/trip-view";
 
@@ -38,4 +39,16 @@ export interface ExpenseMoneyChanged {
 
 export interface LedgerEventPublisher {
   moneyChanged(event: ExpenseMoneyChanged): Promise<void>;
+}
+
+/** Where receipt photos live (private). Paths are `<tripId>/<id>.<ext>`. */
+export interface ReceiptStore {
+  put(tripId: TripId, id: string, image: ReceiptImage): Promise<string>;
+  /** A short-lived URL to show the photo, or null if it's gone. */
+  signedUrl(path: string): Promise<string | null>;
+}
+
+/** Reads a receipt photo (a vision model). May be absent when not configured. */
+export interface ReceiptReader {
+  read(image: ReceiptImage, hint: { baseCurrency: string }): Promise<ReceiptReading | null>;
 }

@@ -1,17 +1,35 @@
 import type { Clock } from "@/shared-kernel/clock";
-import { forbidden, notFound } from "@/shared-kernel/errors";
+import { forbidden, invalidState, notFound } from "@/shared-kernel/errors";
 import { ExpenseId, SplitGroupId, type IdGenerator, type PrincipalId, type SeatId, type TripId } from "@/shared-kernel/ids";
 import { attempt, type Result } from "@/shared-kernel/result";
 import { Expense, type Category, type Context, type ExpenseEffect, type ExpenseType, type MoneyInput } from "../domain/expense";
 import { evaluateGuards, type ExpenseWarning } from "../domain/guards";
 import { SplitGroup } from "../domain/split-group";
 import { suggestSplit } from "../domain/split-suggestion";
-import type { ExpenseMoneyChanged, ExpenseRepository, LedgerEventPublisher, MembershipReader, SplitGroupRepository } from "./ports";
+import {
+  assertReceiptImage,
+  assertReceiptPaths,
+  prefillFromReading,
+  type ReceiptImage,
+  type ReceiptPrefill,
+} from "../domain/receipt";
+import type {
+  ExpenseMoneyChanged,
+  ExpenseRepository,
+  LedgerEventPublisher,
+  MembershipReader,
+  ReceiptReader,
+  ReceiptStore,
+  SplitGroupRepository,
+} from "./ports";
 
 export interface ExpenseLedgerDeps {
   expenses: ExpenseRepository;
   splitGroups: SplitGroupRepository;
   membership: MembershipReader;
+  receipts: ReceiptStore;
+  /** Optional: reads receipt photos; without it photos are attached but not read. */
+  reader?: ReceiptReader | null;
   /** Optional: who hears about saved money changes. */
   events?: LedgerEventPublisher;
   ids: IdGenerator;
@@ -34,6 +52,7 @@ export interface ExpenseDTO {
   myShare: number | null;
   moneyVersion: number;
   createdBy: SeatId;
+  receiptCount: number;
 }
 
 export function toExpenseDTO(expense: Expense, mySeatId: SeatId | null): ExpenseDTO {
@@ -55,6 +74,7 @@ export function toExpenseDTO(expense: Expense, mySeatId: SeatId | null): Expense
     myShare: mine ? (mine.baseAmount ?? mine.amount) : null,
     moneyVersion: expense.moneyVersion,
     createdBy: expense.createdBy,
+    receiptCount: expense.toPrimitives().receiptPaths.length,
   };
 }
 
@@ -117,10 +137,17 @@ export class ExpenseLedgerUseCases {
   recordExpense(
     principalId: PrincipalId,
     tripId: TripId,
-    input: MoneyInput & { type?: ExpenseType; category?: Category; title?: string | null; occurredAt?: Date },
+    input: MoneyInput & {
+      type?: ExpenseType;
+      category?: Category;
+      title?: string | null;
+      occurredAt?: Date;
+      receiptPaths?: string[];
+    },
   ): Promise<Result<{ expense: ExpenseDTO; warnings: ExpenseWarning[] }>> {
     return attempt(async () => {
       const ctx = await this.context(principalId, tripId);
+      assertReceiptPaths(input.receiptPaths ?? [], tripId);
       const expense = Expense.record({ ...input, id: ExpenseId(this.deps.ids.next()) }, ctx);
       const others = await this.deps.expenses.listByTrip(tripId);
       await this.deps.expenses.save(expense, null);
@@ -194,6 +221,46 @@ export class ExpenseLedgerUseCases {
         .filter((e) => e.status !== "deleted")
         .sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime())
         .map((e) => toExpenseDTO(e, ctx.actor));
+    });
+  }
+
+  /**
+   * "Foto de la factura" in quick add: stores the photo under the trip and, when a reader is
+   * configured, reads it to pre-fill the form. Nothing is recorded until the person saves.
+   */
+  scanReceipt(
+    principalId: PrincipalId,
+    tripId: TripId,
+    image: ReceiptImage,
+  ): Promise<Result<ReceiptPrefill & { receiptPath: string; read: boolean }>> {
+    return attempt(async () => {
+      const ctx = await this.context(principalId, tripId);
+      if (ctx.trip.status === "closed") throw invalidState("El viaje está cerrado");
+      assertReceiptImage(image);
+      const receiptPath = await this.deps.receipts.put(tripId, this.deps.ids.next(), image);
+      if (!this.deps.reader) {
+        return { receiptPath, read: false, amount: null, currency: null, title: null, category: null, note: null };
+      }
+      let reading = null;
+      try {
+        reading = await this.deps.reader.read(image, { baseCurrency: ctx.trip.baseCurrency });
+      } catch (error) {
+        // The photo is already stored and stays attached; the person just types the amount.
+        console.error("receipt reader failed", error);
+      }
+      return { receiptPath, read: reading !== null, ...prefillFromReading(reading, ctx.trip.baseCurrency) };
+    });
+  }
+
+  /** A short-lived link to an expense's receipt photo, for members of the trip. */
+  receiptUrl(principalId: PrincipalId, tripId: TripId, expenseId: ExpenseId, index = 0): Promise<Result<string>> {
+    return attempt(async () => {
+      await this.context(principalId, tripId);
+      const expense = await this.load(tripId, expenseId);
+      const path = expense.toPrimitives().receiptPaths[index];
+      const url = path ? await this.deps.receipts.signedUrl(path) : null;
+      if (!url) throw notFound("Este gasto no tiene soporte");
+      return url;
     });
   }
 

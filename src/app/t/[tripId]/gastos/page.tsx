@@ -54,7 +54,17 @@ export default async function Gastos({
               <li key={e.id} className="flex min-h-[62px] items-center justify-between gap-3">
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate text-[15px] font-semibold">{expenseTitle(e)}</span>
-                  <span className="text-[13px] text-muted">{nameOf(e.payers[0]?.seatId ?? e.createdBy)}</span>
+                  <span className="text-[13px] text-muted">
+                    {nameOf(e.payers[0]?.seatId ?? e.createdBy)}
+                    {e.receiptCount > 0 && (
+                      <>
+                        {" · "}
+                        <a href={`/t/${tripId}/soporte/${e.id}`} target="_blank" rel="noreferrer" className="font-semibold text-accent-text">
+                          Ver factura
+                        </a>
+                      </>
+                    )}
+                  </span>
                 </span>
                 {e.status === "draft" ? (
                   <span className="rounded-full bg-accent-soft px-2.5 py-1 text-[13px] font-semibold text-accent-text">Sin monto</span>

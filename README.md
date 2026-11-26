@@ -27,6 +27,8 @@ npm run dev
 ```
 Create a trip, tap "Invitar" on a person, and open the link in a private window to join as them.
 
+Receipt reading ("Foto de la factura") uses Claude: add `ANTHROPIC_API_KEY` to `.env.local`. Without it, photos are attached to expenses but not read.
+
 ## Checks
 ```bash
 npm test             # Vitest: domain + use cases (in-memory)

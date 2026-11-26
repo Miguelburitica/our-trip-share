@@ -1,4 +1,5 @@
 import "server-only";
+import { ClaudeReceiptReader } from "@/contexts/expense-ledger/infrastructure/claude-receipt-reader";
 import { createSupabaseContainer, createMemoryContainer, type Container } from "./container";
 import { seedCartagena } from "./demo-seed";
 import { serviceClient } from "@/platform/supabase/clients";
@@ -17,8 +18,11 @@ const g = globalThis as unknown as { __ourShare?: Promise<MemoryHolder> };
 // Module scope, not globalThis: it holds no data, so a hot reload should rebuild it with new code.
 let dbContainer: Container | undefined;
 
+/** Receipt reading is on when the server has an Anthropic API key (see .env.example). */
+const reader = () => (process.env.ANTHROPIC_API_KEY ? new ClaudeReceiptReader() : null);
+
 async function buildMemory(): Promise<MemoryHolder> {
-  const container = createMemoryContainer();
+  const container = createMemoryContainer({ reader: reader() });
   const demoTripId = await seedCartagena(container);
   return { container, demoTripId };
 }
@@ -26,7 +30,7 @@ async function buildMemory(): Promise<MemoryHolder> {
 export async function getContainer(): Promise<Container> {
   if (backend() === "supabase") {
     // Repositories are stateless apart from per-aggregate versions held in WeakMaps, so one is enough.
-    dbContainer ??= createSupabaseContainer(serviceClient());
+    dbContainer ??= createSupabaseContainer(serviceClient(), { reader: reader() });
     return dbContainer;
   }
   g.__ourShare ??= buildMemory();
