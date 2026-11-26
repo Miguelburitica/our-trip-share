@@ -70,7 +70,15 @@ async function shrinkPhoto(file: File): Promise<File> {
 const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x) => b.includes(x));
 const andList = (xs: string[]) => new Intl.ListFormat("es", { type: "conjunction" }).format(xs);
 
-export function QuickAdd(props: { tripId: string; currency: string; mySeatId: string; people: Person[]; presets: Presets }) {
+export function QuickAdd(props: {
+  tripId: string;
+  currency: string;
+  mySeatId: string;
+  people: Person[];
+  /** La vaca, if the trip has one: it can pay (never owes). */
+  pot?: { id: string; cash: number } | null;
+  presets: Presets;
+}) {
   const [digits, setDigits] = useState("");
   // The expense's currency; the trip's (props.currency) unless they pick another.
   const [cur, setCur] = useState(props.currency);
@@ -110,7 +118,10 @@ export function QuickAdd(props: { tripId: string; currency: string; mySeatId: st
     setDigits("");
     setCardCharge(null);
   };
-  const payer = props.people[payerIndex];
+  const payers: Person[] = props.pot ? [...props.people, { id: props.pot.id, name: "la vaca", initials: "V" }] : props.people;
+  const payer = payers[payerIndex % payers.length];
+  const potPays = props.pot != null && payer.id === props.pot.id;
+  const potShort = potPays && !foreign && amount > props.pot!.cash;
   const n = selected.length;
   const each = Math.floor(amount / Math.max(n, 1));
   const perPerson = !n || !amount ? "Elige quiénes" : amount % n ? `${fmt(each, cur)}–${fmt(each + 1, cur)} c/u` : `${fmt(each, cur)} c/u`;
@@ -350,11 +361,16 @@ export function QuickAdd(props: { tripId: string; currency: string; mySeatId: st
 
       <button
         type="button"
-        onClick={() => setPayerIndex((i) => (i + 1) % props.people.length)}
+        onClick={() => setPayerIndex((i) => (i + 1) % payers.length)}
         className="flex min-h-[50px] items-center gap-2.5 rounded-full bg-tint py-1.5 pr-4 pl-1.5 text-left"
       >
         <span className="flex size-[38px] items-center justify-center rounded-full bg-ink text-[13px] font-semibold text-bg">{payer.initials}</span>
         <span className="text-[15px] font-semibold">Pagó {payer.id === props.mySeatId ? "tú" : payer.name}</span>
+        {potPays && (
+          <span className={`ml-auto text-[13px] ${potShort ? "font-semibold text-accent-text" : "text-muted"}`}>
+            {potShort ? `La vaca solo tiene ${fmt(Math.max(0, props.pot!.cash), props.currency)}` : `Tiene ${fmt(props.pot!.cash, props.currency)}`}
+          </span>
+        )}
       </button>
 
       <section className="flex flex-col gap-3 rounded-3xl bg-surface p-4 shadow-card [@media(max-height:860px)]:gap-2 [@media(max-height:860px)]:py-3">

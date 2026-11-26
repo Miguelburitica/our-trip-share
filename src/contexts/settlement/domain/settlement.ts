@@ -30,7 +30,12 @@ export interface SettlementProps {
 export interface Actor {
   readonly seatId: SeatId;
   readonly isAdmin: boolean;
+  /** La vaca's seat when this person keeps it: they send and receive for it. */
+  readonly holderOf?: SeatId | null;
 }
+
+/** The actor is `seat`, or keeps the pot that `seat` is. */
+const actsAs = (actor: Actor, seat: SeatId) => actor.seatId === seat || (actor.holderOf != null && actor.holderOf === seat);
 
 /**
  * Aggregate: money a seat says it paid to another.
@@ -55,7 +60,7 @@ export class Settlement {
     now: Date,
   ): Settlement {
     if (input.from === input.to) throw validationError("No puedes pagarte a ti mismo");
-    const involved = actor.seatId === input.from || actor.seatId === input.to;
+    const involved = actsAs(actor, input.from) || actsAs(actor, input.to);
     if (!involved && !actor.isAdmin) throw forbidden("Solo puedes registrar pagos que hiciste o recibiste");
     if (!isCurrencyCode(input.currency)) throw validationError("Moneda no soportada");
     if (!(SETTLEMENT_METHODS as readonly string[]).includes(input.method)) throw validationError("Método desconocido");
@@ -65,7 +70,7 @@ export class Settlement {
     const note = input.note?.trim() || null;
     if (input.method === "offset" && !note) throw validationError("Explica la compensación en una nota");
 
-    const receiverRecorded = actor.seatId === input.to;
+    const receiverRecorded = actsAs(actor, input.to);
     return new Settlement({
       id: input.id,
       tripId: input.tripId,
@@ -89,20 +94,20 @@ export class Settlement {
   }
 
   confirm(actor: Actor, now: Date) {
-    if (actor.seatId !== this.props.to) throw forbidden("Solo quien recibe confirma el pago");
+    if (!actsAs(actor, this.props.to)) throw forbidden("Solo quien recibe confirma el pago");
     if (this.props.status !== "pending") throw invalidState("Este pago no está pendiente");
     this.resolve("confirmed", actor.seatId, now);
   }
 
   /** "No me llegó". */
   dispute(actor: Actor, now: Date) {
-    if (actor.seatId !== this.props.to) throw forbidden("Solo quien recibe puede decir que no le llegó");
+    if (!actsAs(actor, this.props.to)) throw forbidden("Solo quien recibe puede decir que no le llegó");
     if (this.props.status !== "pending") throw invalidState("Este pago no está pendiente");
     this.resolve("disputed", actor.seatId, now);
   }
 
   resend(actor: Actor, now: Date) {
-    if (actor.seatId !== this.props.from) throw forbidden("Solo quien pagó puede reenviar");
+    if (!actsAs(actor, this.props.from)) throw forbidden("Solo quien pagó puede reenviar");
     if (this.props.status !== "disputed") throw invalidState("Este pago no está en disputa");
     this.props.status = "pending";
     this.props.recordedAt = now;

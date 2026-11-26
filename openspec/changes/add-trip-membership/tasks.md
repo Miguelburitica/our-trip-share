@@ -30,6 +30,7 @@
 - [x] 5.2 Build the join screen for personal links (Tonal design, Spanish copy); verify by opening a seat link in a fresh browser session
 - [x] 5.3 Build the generic link: QR + WhatsApp in Viaje (create, rotate), the `/u/[tripId]/[token]` picker ("Soy Leo" / "No estoy en la lista") with a waiting screen, and approve/reject in Viaje and Inicio; verify with Vitest and in the browser
 - [x] 5.4 "Reenviar" a personal link for a linked seat (moves on first use, one-time links), with the recovery copy on the join screen; revoke the client-callable linking RPCs; verify with Vitest, pgTAP and in the browser
+- [x] 5.5 La vaca in Viaje: "¿Van a hacer vaca?" with its holder, change holder, remove while unused (`createPot`, `changePotHolder`, `removePot`; `seats.holder_seat_id`, one per trip); pay with la vaca in quick add with a low-balance warning; verify with Vitest, `npm run test:db` and in the browser
 
 ## 6. Auth
 

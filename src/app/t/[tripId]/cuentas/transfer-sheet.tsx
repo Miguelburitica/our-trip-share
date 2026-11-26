@@ -51,10 +51,13 @@ export function TransferRow(props: {
   initiallyOpen?: boolean;
   /** Cerrado: no more payments, so no sheet. */
   readOnly?: boolean;
+  /** La vaca's seat when I keep it: I collect and pay for it. */
+  potIHold?: string | null;
 }) {
   const { transfer: t, mySeatId, names } = props;
-  const collecting = t.to === mySeatId;
-  const paying = t.from === mySeatId;
+  const mine = (id: string) => id === mySeatId || (props.potIHold != null && id === props.potIHold);
+  const collecting = mine(t.to);
+  const paying = mine(t.from);
   const label = (id: string) => (id === mySeatId ? "Tú" : (names[id] ?? "Alguien"));
   const subtitle = t.pendingSettlementId
     ? collecting
@@ -63,9 +66,13 @@ export function TransferRow(props: {
         ? "Le avisaste · falta que confirme"
         : "Dice que ya pagó · por confirmar"
     : collecting
-      ? "Te paga a ti"
+      ? t.to === props.potIHold
+        ? "Para la vaca que guardas"
+        : "Te paga a ti"
       : paying
-        ? "Tú pagas"
+        ? t.from === props.potIHold
+          ? "Le devuelves de la vaca"
+          : "Tú pagas"
         : "Entre ellos";
   const note = t.adjusted && !t.pendingSettlementId ? `${subtitle} · ajuste` : subtitle;
 

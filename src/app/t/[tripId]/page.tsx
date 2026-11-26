@@ -21,7 +21,8 @@ export default async function Inicio({ params }: { params: Promise<{ tripId: str
   const payers = b.plan.filter((t) => t.to === b.mySeatId).map((t) => nameOf(t.from));
   const myDebts = b.plan.filter((t) => t.from === b.mySeatId);
   const mine = owedToMe ? b.plan.filter((t) => t.to === b.mySeatId) : myDebts;
-  const pendingForMe = b.pending.filter((p) => p.to === b.mySeatId);
+  const potIHold = b.pot && b.pot.holderSeatId === b.mySeatId ? b.pot.seatId : null;
+  const pendingForMe = b.pending.filter((p) => p.to === b.mySeatId || p.to === potIHold);
   const drafts = expenses.value.filter((e) => e.status === "draft");
   const me = trip.seats.find((s) => s.id === trip.mySeatId);
   const joinRequests = trip.seats.filter(
@@ -72,6 +73,9 @@ export default async function Inicio({ params }: { params: Promise<{ tripId: str
               : myDebts.map((t) => `a ${nameOf(t.to)}`).join(", ")}
             {pendingForMe.length > 0 && ` · ${pendingForMe.length} por confirmar`}
           </span>
+          {b.pot && b.pot.holderSeatId === b.mySeatId && (
+            <span className="text-sm font-medium text-ink-2">Guardas la vaca: {fmt(b.pot.cash, b.baseCurrency)}</span>
+          )}
         </div>
         <div className="flex items-center gap-5">
           {mine.length > 0 && (
@@ -125,7 +129,9 @@ export default async function Inicio({ params }: { params: Promise<{ tripId: str
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="text-[15px] font-semibold">
                 {pendingForMe.length
-                  ? `${nameOf(pendingForMe[0].from)} dice que te pagó ${fmt(pendingForMe[0].baseAmount, b.baseCurrency)}`
+                  ? pendingForMe[0].to === potIHold
+                    ? `${nameOf(pendingForMe[0].from)} dice que puso ${fmt(pendingForMe[0].baseAmount, b.baseCurrency)} en la vaca`
+                    : `${nameOf(pendingForMe[0].from)} dice que te pagó ${fmt(pendingForMe[0].baseAmount, b.baseCurrency)}`
                   : `${drafts.length} recibo sin monto`}
               </span>
               <span className="text-sm text-muted">

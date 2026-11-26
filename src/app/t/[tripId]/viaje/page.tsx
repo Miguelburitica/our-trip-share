@@ -8,6 +8,7 @@ import { ClaimRequests } from "./claim-requests";
 import { HandlesForm } from "./handles-form";
 import { InviteButton } from "./invite-button";
 import { JoinLinkCard } from "./join-link-card";
+import { PotCard } from "./pot-card";
 
 const when = new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: "America/Bogota" });
 
@@ -99,6 +100,16 @@ export default async function Viaje({
       </section>
 
       <HandlesForm tripId={trip.id} initial={myHandles.ok ? myHandles.value : []} />
+
+      <PotCard
+        tripId={trip.id}
+        pot={trip.pot ? { holderSeatId: trip.pot.holderSeatId } : null}
+        people={trip.seats
+          .filter((s) => s.status === "active" && !s.awaitingApproval)
+          .map((s) => ({ id: s.id as string, name: s.id === trip.mySeatId ? `${s.displayName} (tú)` : s.displayName }))}
+        canManage={canInvite && trip.status !== "closed"}
+        mySeatId={trip.mySeatId}
+      />
 
       <section aria-label="Herramientas" className="flex flex-col gap-2.5">
         <h2 className="px-1 text-[15px] font-semibold">Herramientas</h2>

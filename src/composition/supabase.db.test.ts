@@ -191,6 +191,21 @@ describe.skipIf(!url || !secret)("Supabase repositories (local stack)", () => {
     expect(after.ok && after.value.groups).toEqual([]);
   });
 
+  it("stores la vaca with its holder and counts what it holds", async () => {
+    expect((await c.membership.createPot(mateo.id, tripId, seats.get("Ana")!)).ok).toBe(true);
+    const trip = await c.membership.getTrip(mateo.id, tripId);
+    if (!trip.ok) throw trip.error;
+    expect(trip.value.pot?.holderSeatId).toBe(seats.get("Ana"));
+    const vaca = trip.value.pot!.seatId;
+    const put = await c.settlement.recordSettlement(mateo.id, tripId, { from: trip.value.mySeatId, to: vaca, amount: 50_000, method: "cash" });
+    if (!put.ok) throw put.error;
+    const b = await c.settlement.getTripBalances(mateo.id, tripId);
+    expect(b.ok && b.value.pot?.cash).toBe(0); // still pending: Ana hasn't confirmed it
+    expect((await c.membership.changePotHolder(mateo.id, tripId, trip.value.mySeatId)).ok).toBe(true);
+    const removed = await c.membership.removePot(mateo.id, tripId);
+    expect(!removed.ok && removed.error.code).toBe("invalid_state");
+  });
+
   it("freezes the plan once and stores \"Revisa tu parte\" answers", async () => {
     expect((await c.membership.startSettling(mateo.id, tripId)).ok).toBe(true);
     expect((await c.settlement.freezePlan(mateo.id, tripId)).ok).toBe(true);

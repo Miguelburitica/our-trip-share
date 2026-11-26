@@ -2,6 +2,7 @@ import Link from "next/link";
 import { fmt } from "@/app/ui/money";
 import { loadTrip } from "../data";
 import { CloseTrip, ReopenTrip, StartSettling } from "./lifecycle";
+import { PotSection } from "./pot-section";
 import { TransferRow } from "./transfer-sheet";
 
 const day = new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", timeZone: "America/Bogota" });
@@ -35,12 +36,15 @@ export default async function Cuentas({
   const handlesOf = (seatId: string) => (toPay.ok ? (toPay.value.find((h) => h.seatId === seatId)?.handles ?? null) : null);
   const max = Math.max(1, ...b.balances.map((x) => Math.abs(x.balance)));
   const current = MODES.find((m) => m.id === mode)!;
-  const names = Object.fromEntries(trip.seats.map((s) => [s.id, s.displayName]));
+  const names: Record<string, string> = Object.fromEntries(trip.seats.map((s) => [s.id, s.displayName]));
+  if (b.pot) names[b.pot.seatId] = "La vaca";
+  const potIHold = b.pot && b.pot.holderSeatId === b.mySeatId ? b.pot.seatId : null;
+  const isMine = (id: string) => id === b.mySeatId || id === potIHold;
   // ?abrir=<seat> (from Inicio's Cobrar/Pagar) opens my transfer with that person.
   // Pending payments that no longer match a plan row (the plan moved after they were sent) still
   // need the receiver's answer, so they get their own list.
   const looseRows = b.pending
-    .filter((p) => (p.from === b.mySeatId || p.to === b.mySeatId) && !b.plan.some((t) => t.pendingSettlementId === p.id))
+    .filter((p) => (isMine(p.from) || isMine(p.to)) && !b.plan.some((t) => t.pendingSettlementId === p.id))
     .map((p) => ({ from: p.from, to: p.to, amount: p.baseAmount, pendingSettlementId: p.id, pendingAmount: p.baseAmount }));
   const me = trip.seats.find((s) => s.id === trip.mySeatId);
   const canManage = me?.role === "owner" || me?.role === "admin";
@@ -135,6 +139,7 @@ export default async function Cuentas({
               theirHandles={handlesOf(t.to)}
               initiallyOpen={t === openKey}
               readOnly={closed}
+              potIHold={potIHold}
             />
           ))}
           {b.plan.length === 0 && <li className="py-4 text-muted">Todos están a paz y salvo.</li>}
@@ -156,10 +161,23 @@ export default async function Cuentas({
                 names={names}
                 myHandles={myHandles}
                 theirHandles={handlesOf(t.to)}
+                potIHold={potIHold}
               />
             ))}
           </ul>
         </section>
+      )}
+
+      {b.pot && (
+        <PotSection
+          tripId={tripId}
+          currency={b.baseCurrency}
+          pot={b.pot}
+          mySeatId={b.mySeatId}
+          names={names}
+          people={trip.seats.filter((s) => s.status === "active" && !s.awaitingApproval).map((s) => ({ id: s.id as string, name: s.displayName }))}
+          readOnly={closed}
+        />
       )}
 
       <section aria-label="Saldo por persona" className="flex flex-col gap-3 px-1">

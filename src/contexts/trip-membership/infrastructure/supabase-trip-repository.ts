@@ -30,6 +30,7 @@ function toSeat(r: Row<"seats">): SeatProps {
     defaultExcluded: r.default_excluded,
     inviteTokenHash: r.invite_token_hash,
     createdBy: r.created_by as SeatId | null,
+    holderSeatId: (r.holder_seat_id as SeatId | null) ?? null,
   };
 }
 
@@ -74,6 +75,7 @@ function toRow(p: TripProps) {
       default_excluded: s.defaultExcluded,
       invite_token_hash: s.inviteTokenHash,
       created_by: s.createdBy,
+      holder_seat_id: s.holderSeatId ?? null,
       position,
     })),
   };

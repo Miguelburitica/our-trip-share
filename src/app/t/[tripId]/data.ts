@@ -12,6 +12,7 @@ export async function loadTrip(rawTripId: string) {
   const trip = await c.membership.getTrip(principal, tripId);
   if (!trip.ok) notFound();
   const names = new Map(trip.value.seats.map((s) => [s.id as string, s.displayName]));
+  if (trip.value.pot) names.set(trip.value.pot.seatId, "La vaca");
   const nameOf = (seatId: string) => (seatId === trip.value.mySeatId ? "Tú" : (names.get(seatId) ?? "Alguien"));
   return { c, principal, isGuest: kind === "guest", tripId, trip: trip.value, nameOf };
 }

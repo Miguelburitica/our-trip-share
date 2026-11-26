@@ -16,8 +16,13 @@ export default async function NuevoGasto({ params }: { params: Promise<{ tripId:
       </main>
     );
   }
-  const presets = await c.ledger.getQuickAddDefaults(principal, tripId);
+  const [presets, balances] = await Promise.all([
+    c.ledger.getQuickAddDefaults(principal, tripId),
+    trip.pot ? c.settlement.getTripBalances(principal, tripId) : null,
+  ]);
   if (!presets.ok) throw new Error("No pudimos preparar el registro");
+  // La vaca can pay; quick add warns when it doesn't have enough.
+  const pot = trip.pot && balances?.ok && balances.value.pot ? { id: trip.pot.seatId as string, cash: balances.value.pot.cash } : null;
   const people = trip.seats
     .filter((s) => s.status === "active" && !s.awaitingApproval)
     .map((s) => ({
@@ -31,6 +36,7 @@ export default async function NuevoGasto({ params }: { params: Promise<{ tripId:
       currency={trip.baseCurrency}
       mySeatId={trip.mySeatId}
       people={people}
+      pot={pot}
       presets={presets.value}
     />
   );

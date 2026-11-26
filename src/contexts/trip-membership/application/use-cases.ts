@@ -44,6 +44,8 @@ export interface TripDTO {
   seats: SeatDTO[];
   /** The caller's own seat. */
   mySeatId: SeatId;
+  /** La vaca: its seat (pays, takes contributions) and who keeps the money. Not in `seats`. */
+  pot: { seatId: SeatId; holderSeatId: SeatId } | null;
 }
 
 export function toTripDTO(trip: Trip, mySeatId: SeatId): TripDTO {
@@ -58,6 +60,7 @@ export function toTripDTO(trip: Trip, mySeatId: SeatId): TripDTO {
     hubSeatId: trip.hubSeatId,
     joinToken: trip.joinToken,
     mySeatId,
+    pot: trip.pot ? { seatId: trip.pot.id, holderSeatId: trip.pot.holderSeatId! } : null,
     seats: trip.allSeats.map((s) => ({
       id: s.id,
       displayName: s.displayName,
@@ -305,6 +308,28 @@ export class TripMembershipUseCases {
   startSettling(principalId: PrincipalId, tripId: TripId): Promise<Result<void>> {
     return attempt(async () => {
       await this.change(tripId, (trip) => trip.startSettling(trip.actor(principalId).id));
+    });
+  }
+
+  /** "¿Van a hacer vaca?" */
+  createPot(principalId: PrincipalId, tripId: TripId, holderSeatId: SeatId): Promise<Result<void>> {
+    return attempt(async () => {
+      await this.change(tripId, (trip) => trip.createPot(trip.actor(principalId).id, holderSeatId, SeatId(this.deps.ids.next())));
+    });
+  }
+
+  changePotHolder(principalId: PrincipalId, tripId: TripId, holderSeatId: SeatId): Promise<Result<void>> {
+    return attempt(async () => {
+      await this.change(tripId, (trip) => trip.changePotHolder(trip.actor(principalId).id, holderSeatId));
+    });
+  }
+
+  removePot(principalId: PrincipalId, tripId: TripId): Promise<Result<void>> {
+    return attempt(async () => {
+      const current = await this.deps.trips.get(tripId);
+      const potId = current?.pot?.id;
+      const used = potId ? await this.deps.seatUsage.isSeatUsed(tripId, potId) : false;
+      await this.change(tripId, (trip) => trip.removePot(trip.actor(principalId).id, used));
     });
   }
 

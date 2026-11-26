@@ -26,6 +26,8 @@ export interface SettlementTripView {
   readonly settleMode: "simplified" | "hub" | "direct";
   readonly hubSeatId: SeatId | null;
   readonly seats: ReadonlyArray<{ readonly id: SeatId; readonly isAdmin: boolean }>;
+  /** La vaca (its seat is among `seats`) and who keeps the money. */
+  readonly pot?: { readonly seatId: SeatId; readonly holderSeatId: SeatId } | null;
 }
 
 export interface SettlementMembershipReader {

@@ -344,6 +344,81 @@ describe("Foreign-currency expenses", () => {
   });
 });
 
+describe("La vaca", () => {
+  it("takes contributions, pays expenses and refunds the leftover through its holder", async () => {
+    const { c, tripId, seat } = await setup();
+    // Mateo (owner) keeps the vaca; Juli joins and puts money in.
+    expect((await c.membership.createPot(DEMO_PRINCIPAL, tripId, seat("Mateo"))).ok).toBe(true);
+    const again = await c.membership.createPot(DEMO_PRINCIPAL, tripId, seat("Mateo"));
+    expect(!again.ok && again.error.code).toBe("conflict");
+    const trip = await c.membership.getTrip(DEMO_PRINCIPAL, tripId);
+    if (!trip.ok) throw trip.error;
+    const vaca = trip.value.pot!.seatId;
+    expect(trip.value.seats.some((s) => s.id === vaca)).toBe(false);
+
+    const invite = await c.membership.issueInvite(DEMO_PRINCIPAL, tripId, seat("Juli"));
+    if (!invite.ok) throw invite.error;
+    const juli = PrincipalId("guest-juli");
+    await c.membership.claimWithInvite(tripId, invite.value.token, { id: juli, kind: "guest" });
+    const put = await c.settlement.recordSettlement(juli, tripId, { from: seat("Juli"), to: vaca, amount: 300_000, method: "nequi" });
+    if (!put.ok) throw put.error;
+    expect(put.value.status).toBe("pending");
+    // Mateo keeps it, so he confirms what reached the vaca.
+    expect((await c.settlement.confirmSettlement(DEMO_PRINCIPAL, tripId, put.value.id)).ok).toBe(true);
+    const mine = await c.settlement.recordSettlement(DEMO_PRINCIPAL, tripId, { from: seat("Leo"), to: vaca, amount: 100_000, method: "cash" });
+    expect(mine.ok && mine.value.status).toBe("confirmed");
+
+    const owes = await c.ledger.recordExpense(DEMO_PRINCIPAL, tripId, {
+      currency: "COP",
+      amount: 10_000,
+      split: { method: "equal", participants: [vaca, seat("Leo")] },
+    });
+    expect(!owes.ok && owes.error.message).toMatch(/vaca/);
+    const paid = await c.ledger.recordExpense(DEMO_PRINCIPAL, tripId, {
+      currency: "COP",
+      amount: 240_000,
+      title: "Almuerzo",
+      payers: [{ seatId: vaca }],
+      split: { method: "equal", participants: [seat("Juli"), seat("Leo"), seat("Mateo")] },
+    });
+    if (!paid.ok) throw paid.error;
+
+    const b = await c.settlement.getTripBalances(DEMO_PRINCIPAL, tripId);
+    if (!b.ok) throw b.error;
+    expect(b.value.pot).toMatchObject({ seatId: vaca, holderSeatId: seat("Mateo"), cash: 160_000 });
+    expect(b.value.balances.some((x) => x.seatId === vaca)).toBe(false);
+    // 160.000 left: 3/4 to Juli, 1/4 to Leo, handed out by Mateo.
+    expect(b.value.plan).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ from: vaca, to: seat("Juli"), amount: 120_000 }),
+        expect.objectContaining({ from: vaca, to: seat("Leo"), amount: 40_000 }),
+      ]),
+    );
+  });
+});
+
+describe("La vaca while Liquidando", () => {
+  it("keeps refunding the vaca's leftover to contributors after the plan froze", async () => {
+    const { c, tripId, seat } = await setup();
+    await c.membership.startSettling(DEMO_PRINCIPAL, tripId);
+    const before = await c.settlement.getTripBalances(DEMO_PRINCIPAL, tripId);
+    if (!before.ok) throw before.error;
+    await c.membership.createPot(DEMO_PRINCIPAL, tripId, seat("Mateo"));
+    const trip = await c.membership.getTrip(DEMO_PRINCIPAL, tripId);
+    const vaca = trip.ok ? trip.value.pot!.seatId : (null as never);
+    // Mateo records that Leo put 60.000 in.
+    await c.settlement.recordSettlement(DEMO_PRINCIPAL, tripId, { from: seat("Leo"), to: vaca, amount: 60_000, method: "cash" });
+    const after = await c.settlement.getTripBalances(DEMO_PRINCIPAL, tripId);
+    if (!after.ok) throw after.error;
+    expect(after.value.pot?.cash).toBe(60_000);
+    expect(after.value.plan.filter((t) => t.from === vaca || t.to === vaca)).toEqual([
+      { from: vaca, to: seat("Leo"), amount: 60_000, adjusted: false, pendingSettlementId: null },
+    ]);
+    // People's frozen rows don't move.
+    expect(after.value.plan.filter((t) => t.from !== vaca && t.to !== vaca)).toEqual(before.value.plan);
+  });
+});
+
 describe("Liquidando and Cerrado", () => {
   const joinJuli = async (c: Awaited<ReturnType<typeof setup>>["c"], tripId: Awaited<ReturnType<typeof setup>>["tripId"], juliSeat: SeatId) => {
     const invite = await c.membership.issueInvite(DEMO_PRINCIPAL, tripId, juliSeat);

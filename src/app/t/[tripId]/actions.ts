@@ -271,3 +271,27 @@ export async function setExpenseRateAction(input: {
   revalidatePath(`/t/${input.tripId}`, "layout");
   return { ok: true };
 }
+
+/** La vaca: create it with its holder, or hand it to someone else. */
+export async function savePotAction(tripId: string, holderSeatId: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  const { id: principal } = await requirePrincipal();
+  const c = await getContainer();
+  const trip = await c.membership.getTrip(principal, TripId(tripId));
+  if (!trip.ok) return { ok: false, message: COPY[trip.error.code] };
+  const holder = SeatId(String(holderSeatId));
+  const r = trip.value.pot
+    ? await c.membership.changePotHolder(principal, TripId(tripId), holder)
+    : await c.membership.createPot(principal, TripId(tripId), holder);
+  if (!r.ok) return { ok: false, message: r.error.message || COPY[r.error.code] };
+  revalidatePath(`/t/${tripId}`, "layout");
+  return { ok: true };
+}
+
+export async function removePotAction(tripId: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  const { id: principal } = await requirePrincipal();
+  const c = await getContainer();
+  const r = await c.membership.removePot(principal, TripId(tripId));
+  if (!r.ok) return { ok: false, message: r.error.message || COPY[r.error.code] };
+  revalidatePath(`/t/${tripId}`, "layout");
+  return { ok: true };
+}

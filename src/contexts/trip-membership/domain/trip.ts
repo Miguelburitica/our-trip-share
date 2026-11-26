@@ -167,8 +167,13 @@ export class Trip {
   get endDate() {
     return this.props.endDate;
   }
+  /** The people of the trip (la vaca is not one of them; see `pot`). */
   get allSeats(): readonly Seat[] {
-    return this.seats;
+    return this.seats.filter((s) => !s.isPot);
+  }
+  /** La vaca, if the trip has one. */
+  get pot(): Seat | null {
+    return this.seats.find((s) => s.isPot) ?? null;
   }
   get owner(): Seat {
     const owner = this.seats.find((s) => s.role === "owner");
@@ -177,7 +182,7 @@ export class Trip {
   }
 
   seat(seatId: SeatId): Seat {
-    const seat = this.seats.find((s) => s.id === seatId);
+    const seat = this.seats.find((s) => s.id === seatId && !s.isPot);
     if (!seat) throw notFound("Esa persona no está en el viaje", { seatId });
     return seat;
   }
@@ -196,7 +201,7 @@ export class Trip {
 
   /** Seats a new expense includes by default. */
   defaultParticipantIds(): SeatId[] {
-    return this.seats.filter((s) => s.isActive && !s.defaultExcluded).map((s) => s.id);
+    return this.allSeats.filter((s) => s.isActive && !s.defaultExcluded).map((s) => s.id);
   }
 
   // ---------- seats ----------
@@ -402,6 +407,7 @@ export class Trip {
     const seat = this.seat(seatId);
     if (seat.role === "owner") throw forbidden("No puedes quitar al organizador");
     if (isUsed) throw invalidState("Esta persona ya tiene gastos; márcala como 'se fue'");
+    if (this.pot?.holderSeatId === seatId) throw invalidState("Esta persona guarda la vaca; pásasela a otro primero");
     this.seats = this.seats.filter((s) => s.id !== seatId);
     if (this.props.hubSeatId === seatId) this.props.hubSeatId = null;
   }
@@ -409,6 +415,53 @@ export class Trip {
   setDefaultExcluded(actorId: SeatId, seatId: SeatId, excluded: boolean) {
     this.requireActiveMember(actorId);
     this.seat(seatId)._update({ defaultExcluded: excluded });
+  }
+
+  // ---------- la vaca ----------
+
+  /** "¿Van a hacer vaca?": adds the group kitty, kept by `holderSeatId`. One per trip. */
+  createPot(actorId: SeatId, holderSeatId: SeatId, newSeatId: SeatId): Seat {
+    this.requireAdmin(actorId);
+    if (this.props.status === "closed") throw invalidState("El viaje está cerrado");
+    if (this.pot) throw conflict("El viaje ya tiene vaca");
+    this.requireHolder(holderSeatId);
+    const pot = new Seat({
+      id: newSeatId,
+      displayName: "La vaca",
+      role: "member",
+      status: "active",
+      link: { kind: "none" },
+      pendingClaim: null,
+      defaultExcluded: true,
+      inviteTokenHash: null,
+      createdBy: actorId,
+      holderSeatId,
+    });
+    this.seats.push(pot);
+    return pot;
+  }
+
+  /** Someone else keeps the money now. */
+  changePotHolder(actorId: SeatId, holderSeatId: SeatId) {
+    this.requireAdmin(actorId);
+    const pot = this.pot;
+    if (!pot) throw notFound("El viaje no tiene vaca");
+    this.requireHolder(holderSeatId);
+    pot._update({ holderSeatId });
+  }
+
+  /** Only while nobody has put money in or paid with it. */
+  removePot(actorId: SeatId, isUsed: boolean) {
+    this.requireAdmin(actorId);
+    const pot = this.pot;
+    if (!pot) throw notFound("El viaje no tiene vaca");
+    if (isUsed) throw invalidState("La vaca ya tiene movimientos; no se puede quitar");
+    this.seats = this.seats.filter((s) => s !== pot);
+  }
+
+  private requireHolder(seatId: SeatId) {
+    const holder = this.seat(seatId);
+    if (!holder.isActive) throw validationError("Quien guarda la vaca debe estar en el viaje");
   }
 
   // ---------- trip settings & lifecycle ----------

@@ -14,15 +14,21 @@ export interface LedgerTripView {
     readonly active: boolean;
     readonly defaultExcluded: boolean;
     readonly isAdmin: boolean;
+    /** La vaca: may pay, never owes a share. */
+    readonly isPot?: boolean;
   }>;
 }
 
 export function defaultParticipants(view: LedgerTripView): SeatId[] {
-  return view.seats.filter((s) => s.active && !s.defaultExcluded).map((s) => s.id);
+  return view.seats.filter((s) => s.active && !s.defaultExcluded && !s.isPot).map((s) => s.id);
 }
 
 export function isTripSeat(view: LedgerTripView, seatId: SeatId): boolean {
   return view.seats.some((s) => s.id === seatId);
+}
+
+export function isPotSeat(view: LedgerTripView, seatId: SeatId): boolean {
+  return view.seats.some((s) => s.id === seatId && s.isPot);
 }
 
 export function isAdminSeat(view: LedgerTripView, seatId: SeatId): boolean {

@@ -8,6 +8,7 @@ import { detectReopened, type ChangeCause, type LedgerChange } from "../domain/b
 import { computeBalances, ledgerBalances, overpaymentCredit } from "../domain/balances";
 import type { Transfer } from "../domain/ledger-entry";
 import { buildSettlingPlan, mergeSettlingPlan, planDirect, planHub, planSimplified } from "../domain/plan";
+import { potSummary, settlePot } from "../domain/pot";
 import { reviewShare, type ShareReviewStatus } from "../domain/share-review";
 import { Settlement, type SettlementStatus } from "../domain/settlement";
 import { handlesVisibleTo, normalizeHandles, type PayoutHandle } from "../domain/payout-handles";
@@ -52,6 +53,13 @@ export interface BalancesDTO {
   balances: Array<{ seatId: SeatId; balance: number; settled: boolean }>;
   plan: PlannedTransfer[];
   pending: Array<{ id: SettlementId; from: SeatId; to: SeatId; baseAmount: number }>;
+  /** La vaca: how much it holds and who put what. Its seat isn't in `balances`. */
+  pot: {
+    seatId: SeatId;
+    holderSeatId: SeatId;
+    cash: number;
+    contributions: Array<{ seatId: SeatId; amount: number }>;
+  } | null;
 }
 
 export interface ShareReviewDTO {
@@ -79,7 +87,8 @@ export class SettlementUseCases {
     const seatId = await this.deps.membership.seatOf(tripId, principalId);
     if (!seatId) throw forbidden("No eres parte de este viaje");
     const isAdmin = trip.seats.some((s) => s.id === seatId && s.isAdmin);
-    return { trip, actor: { seatId, isAdmin } };
+    const holderOf = trip.pot && trip.pot.holderSeatId === seatId ? trip.pot.seatId : null;
+    return { trip, actor: { seatId, isAdmin, holderOf } };
   }
 
   /** Loads settlements and lazily applies auto-confirmation. */
@@ -104,17 +113,23 @@ export class SettlementUseCases {
     const { balances } = computeBalances(seatIds, entries, settlements);
     const dust = CURRENCIES[trip.baseCurrency].dustTolerance - 1;
     const pending = settlements.filter((s) => s.status === "pending");
+    // La vaca's leftover goes back to contributors first (from its holder); then people settle up.
+    // Directo keeps the pot as one more party: each person squares with it for what they used.
+    const pot = trip.pot ?? null;
+    const potted = pot ? settlePot(pot, balances, settlements) : { balances, refunds: [] };
     const livePlan = (m: SettlementTripView["settleMode"]) =>
-      m === "hub" && trip.hubSeatId
-        ? planHub(balances, trip.hubSeatId, dust)
-        : m === "direct"
-          ? planDirect(entries, settlements)
-          : planSimplified(balances, dust);
+      m === "direct"
+        ? planDirect(entries, settlements)
+        : [
+            ...potted.refunds,
+            ...(m === "hub" && trip.hubSeatId ? planHub(potted.balances, trip.hubSeatId, dust) : planSimplified(potted.balances, dust)),
+          ];
+    const potInfo = pot ? { ...pot, ...potSummary(pot, balances, settlements) } : null;
 
     if (trip.status === "active") {
       const effectiveMode = mode ?? trip.settleMode;
       const transfers = livePlan(effectiveMode).map((t) => ({ ...t, adjusted: false }));
-      return { seatIds, balances, transfers, effectiveMode, pending, frozenAt: null };
+      return { seatIds, balances, transfers, effectiveMode, pending, frozenAt: null, potInfo };
     }
     // A trip that reached Liquidando without a stored plan (the freeze right after "Empezar a
     // liquidar" failed) freezes now.
@@ -128,8 +143,15 @@ export class SettlementUseCases {
     const confirmedSinceFreeze = settlements.filter(
       (s) => s.status === "confirmed" && s.resolvedAt !== null && s.resolvedAt > snapshot.frozenAt,
     );
-    const transfers = mergeSettlingPlan(buildSettlingPlan({ frozen: snapshot.transfers, balances, confirmedSinceFreeze, dust }));
-    return { seatIds, balances, transfers, effectiveMode: trip.settleMode, pending, frozenAt: snapshot.frozenAt };
+    // La vaca's refunds follow what it holds now (they aren't frozen); people's rows stay frozen.
+    const onPot = (t: { from: SeatId; to: SeatId }) => pot !== null && (t.from === pot.seatId || t.to === pot.seatId);
+    const transfers = [
+      ...potted.refunds.map((t) => ({ ...t, adjusted: false })),
+      ...mergeSettlingPlan(
+        buildSettlingPlan({ frozen: snapshot.transfers.filter((t) => !onPot(t)), balances: potted.balances, confirmedSinceFreeze, dust }),
+      ),
+    ];
+    return { seatIds, balances, transfers, effectiveMode: trip.settleMode, pending, frozenAt: snapshot.frozenAt, potInfo };
   }
 
   /**
@@ -198,7 +220,7 @@ export class SettlementUseCases {
   getTripBalances(principalId: PrincipalId, tripId: TripId, mode?: SettlementTripView["settleMode"]): Promise<Result<BalancesDTO>> {
     return attempt(async () => {
       const { trip, actor } = await this.context(principalId, tripId);
-      const { seatIds, balances, transfers, effectiveMode, pending, frozenAt } = await this.compute(tripId, trip, mode);
+      const { seatIds, balances, transfers, effectiveMode, pending, frozenAt, potInfo } = await this.compute(tripId, trip, mode);
       return {
         phase: trip.status,
         frozenAt: frozenAt?.toISOString() ?? null,
@@ -206,7 +228,8 @@ export class SettlementUseCases {
         settleMode: effectiveMode,
         mySeatId: actor.seatId,
         myBalance: balances.get(actor.seatId) ?? 0,
-        balances: seatIds.map((seatId) => {
+        pot: potInfo ? { ...potInfo, contributions: [...potInfo.contributions] } : null,
+        balances: seatIds.filter((id) => id !== potInfo?.seatId).map((seatId) => {
           const balance = balances.get(seatId) ?? 0;
           return { seatId, balance, settled: isWithinDust(balance, trip.baseCurrency) };
         }),
@@ -248,9 +271,12 @@ export class SettlementUseCases {
     return attempt(async () => {
       const { trip, actor } = await this.context(principalId, tripId);
       const { transfers } = await this.compute(tripId, trip, mode);
+      // What I owe la vaca goes to whoever keeps it, so I see their details.
+      const pot = trip.pot ?? null;
+      const owedTo = (id: SeatId) => (pot && id === pot.seatId ? pot.holderSeatId : id);
       const visible = [...handlesVisibleTo(actor.seatId, transfers)];
-      const found = await this.deps.handles.getMany(tripId, visible);
-      return visible.map((seatId) => ({ seatId, handles: found.get(seatId) ?? [] }));
+      const found = await this.deps.handles.getMany(tripId, visible.map(owedTo));
+      return visible.map((seatId) => ({ seatId, handles: found.get(owedTo(seatId)) ?? [] }));
     });
   }
 

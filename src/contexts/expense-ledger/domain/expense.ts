@@ -1,7 +1,7 @@
 import { conflict, forbidden, invalidState, validationError } from "@/shared-kernel/errors";
 import type { ExpenseId, SeatId, TripId } from "@/shared-kernel/ids";
 import { MoneyBlock, type FxInput, type MoneyBlockProps, type SplitInput } from "./money-block";
-import { defaultParticipants, isAdminSeat, isTripSeat, type LedgerTripView } from "./trip-view";
+import { defaultParticipants, isAdminSeat, isPotSeat, isTripSeat, type LedgerTripView } from "./trip-view";
 
 export const CATEGORIES = ["comida", "transporte", "super", "tragos", "alojamiento", "planes", "otro"] as const;
 export type Category = (typeof CATEGORIES)[number];
@@ -284,6 +284,8 @@ export class Expense {
     for (const seatId of seats) {
       if (!isTripSeat(ctx.trip, seatId)) throw validationError("Esa persona no está en el viaje", { seatId });
     }
+    const owing = split.method === "equal" ? split.participants : split.shares.map((x) => x.seatId);
+    if (owing.some((seatId) => isPotSeat(ctx.trip, seatId))) throw validationError("La vaca paga, pero no le toca parte");
     return MoneyBlock.create({
       expenseId,
       currency: input.currency,

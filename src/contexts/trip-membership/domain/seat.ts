@@ -24,6 +24,8 @@ export interface SeatProps {
   defaultExcluded: boolean;
   inviteTokenHash: string | null;
   createdBy: SeatId | null;
+  /** La vaca: set only on the trip's pot seat, to the member who keeps the money. */
+  holderSeatId?: SeatId | null;
 }
 
 /** A person's place in a trip. Lives inside the Trip aggregate. */
@@ -56,6 +58,13 @@ export class Seat {
   }
   get createdBy() {
     return this.props.createdBy;
+  }
+  /** The group kitty (la vaca): pays expenses, takes contributions, never owes a share. */
+  get isPot() {
+    return (this.props.holderSeatId ?? null) !== null;
+  }
+  get holderSeatId(): SeatId | null {
+    return this.props.holderSeatId ?? null;
   }
   get isLinked() {
     return this.props.link.kind !== "none";

@@ -20,12 +20,17 @@ export function ledgerMembershipReader(trips: TripRepository): MembershipReader 
         tripId: trip.id,
         status: trip.status,
         baseCurrency: trip.baseCurrency,
-        seats: trip.allSeats.map((s) => ({
-          id: s.id,
-          active: s.isActive,
-          defaultExcluded: s.defaultExcluded,
-          isAdmin: s.isAdmin,
-        })),
+        seats: [
+          ...trip.allSeats.map((s) => ({
+            id: s.id,
+            active: s.isActive,
+            defaultExcluded: s.defaultExcluded,
+            isAdmin: s.isAdmin,
+            isPot: false,
+          })),
+          // La vaca can pay; it never owes a share.
+          ...(trip.pot ? [{ id: trip.pot.id, active: true, defaultExcluded: true, isAdmin: false, isPot: true }] : []),
+        ],
       };
     },
     async seatOf(tripId: TripId, principalId: PrincipalId) {
@@ -47,7 +52,11 @@ export function settlementMembershipReader(trips: TripRepository): SettlementMem
         settleMode: trip.settleMode,
         hubSeatId: trip.hubSeatId,
         // A seat waiting for approval isn't in the trip yet: no balance, no plan row.
-        seats: trip.allSeats.filter((s) => !s.awaitingApproval).map((s) => ({ id: s.id, isAdmin: s.isAdmin })),
+        seats: [
+          ...trip.allSeats.filter((s) => !s.awaitingApproval).map((s) => ({ id: s.id, isAdmin: s.isAdmin })),
+          ...(trip.pot ? [{ id: trip.pot.id, isAdmin: false }] : []),
+        ],
+        pot: trip.pot ? { seatId: trip.pot.id, holderSeatId: trip.pot.holderSeatId! } : null,
       };
     },
     async seatOf(tripId: TripId, principalId: PrincipalId) {
