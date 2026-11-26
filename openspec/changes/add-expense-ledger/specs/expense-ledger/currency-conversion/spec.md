@@ -19,6 +19,14 @@ An expense in a foreign currency SHALL store a decimal FX rate to the base curre
 - **WHEN** an expense is in the base currency
 - **THEN** its rate is 1 and its base amount equals its amount
 
+#### Scenario: An edit keeps the rate
+- **WHEN** a 25.50 USD expense recorded at 4000 is edited to 30.00 USD after the day's rate moved to 5000
+- **THEN** its base amount is 120.000 COP (still 4000)
+
+#### Scenario: Rate looked up for the expense's day
+- **WHEN** an expense in USD is recorded without a rate on 24 nov
+- **THEN** the system asks the rate provider for 24 nov (or the latest published rate) and stores it with source "api"
+
 ### Requirement: Card charge override
 The payer SHALL be able to enter what their card actually charged in the base currency. The system SHALL then use that as the base amount and record the rate source as card charge.
 

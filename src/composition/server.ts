@@ -1,4 +1,5 @@
 import "server-only";
+import { CurrencyApiRateProvider } from "@/contexts/expense-ledger/infrastructure/currency-api-rate-provider";
 import { OpenRouterReceiptReader } from "@/contexts/expense-ledger/infrastructure/openrouter-receipt-reader";
 import { createSupabaseContainer, createMemoryContainer, type Container } from "./container";
 import { seedCartagena } from "./demo-seed";
@@ -24,8 +25,11 @@ const reader = () => {
   return apiKey ? new OpenRouterReceiptReader({ apiKey, model: process.env.OPENROUTER_RECEIPT_MODEL }) : null;
 };
 
+/** Daily FX rates; one instance so its per-day cache is shared. */
+const rates = new CurrencyApiRateProvider();
+
 async function buildMemory(): Promise<MemoryHolder> {
-  const container = createMemoryContainer({ reader: reader() });
+  const container = createMemoryContainer({ reader: reader(), rates });
   const demoTripId = await seedCartagena(container);
   return { container, demoTripId };
 }
@@ -33,7 +37,7 @@ async function buildMemory(): Promise<MemoryHolder> {
 export async function getContainer(): Promise<Container> {
   if (backend() === "supabase") {
     // Repositories are stateless apart from per-aggregate versions held in WeakMaps, so one is enough.
-    dbContainer ??= createSupabaseContainer(serviceClient(), { reader: reader() });
+    dbContainer ??= createSupabaseContainer(serviceClient(), { reader: reader(), rates });
     return dbContainer;
   }
   g.__ourShare ??= buildMemory();

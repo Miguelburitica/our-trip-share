@@ -149,7 +149,9 @@ export default async function Inicio({ params }: { params: Promise<{ tripId: str
                   <span className="truncate text-[15px] font-semibold">{expenseTitle(e)}</span>
                   <span className="text-[13px] text-muted">{nameOf(e.payers[0]?.seatId)}</span>
                 </span>
-                {e.myShare !== null ? (
+                {e.ratePending ? (
+                  <span className="text-sm text-muted">Tasa pendiente</span>
+                ) : e.myShare !== null ? (
                   <span className="tabular text-[15px] font-semibold">{fmt(e.myShare, b.baseCurrency)}</span>
                 ) : (
                   <span className="text-sm text-muted">No estás</span>

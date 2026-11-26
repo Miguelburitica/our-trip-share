@@ -15,7 +15,7 @@ export default async function Gastos({
   if (!result.ok) throw new Error("No pudimos cargar los gastos");
   const showAll = ver === "todos";
   const all = result.value;
-  const visible = showAll ? all : all.filter((e) => e.status === "draft" || e.myShare !== null);
+  const visible = showAll ? all : all.filter((e) => e.status === "draft" || e.includesMe);
   const myTotal = all.reduce((acc, e) => acc + (e.status === "complete" && e.myShare ? e.myShare : 0), 0);
   const tripTotal = all.reduce((acc, e) => acc + (e.status === "complete" && e.baseAmount ? e.baseAmount * (e.type === "money_received" ? -1 : 1) : 0), 0);
 
@@ -64,6 +64,7 @@ export default async function Gastos({
                   </Link>
                   <span className="text-[13px] text-muted">
                     {nameOf(e.payers[0]?.seatId ?? e.createdBy)}
+                    {e.currency && e.currency !== trip.baseCurrency && e.amount !== null && ` · ${fmt(e.amount, e.currency)}`}
                     {e.receiptCount > 0 && (
                       <>
                         {" · "}
@@ -76,6 +77,8 @@ export default async function Gastos({
                 </span>
                 {e.status === "draft" ? (
                   <span className="rounded-full bg-accent-soft px-2.5 py-1 text-[13px] font-semibold text-accent-text">Sin monto</span>
+                ) : e.ratePending ? (
+                  <span className="rounded-full bg-accent-soft px-2.5 py-1 text-[13px] font-semibold text-accent-text">Tasa pendiente</span>
                 ) : e.myShare !== null ? (
                   <span className="tabular text-[15px] font-semibold">{fmt(e.myShare, trip.baseCurrency)}</span>
                 ) : (

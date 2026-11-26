@@ -6,6 +6,7 @@ import type { Trip } from "@/contexts/trip-membership/domain/trip";
 import { hashTokenService } from "@/contexts/trip-membership/infrastructure/hash-token-service";
 import { InMemoryTripRepository } from "@/contexts/trip-membership/infrastructure/in-memory-trip-repository";
 import { conflict } from "@/shared-kernel/errors";
+import { FixedRateProvider } from "@/contexts/expense-ledger/infrastructure/fixed-rate-provider";
 import { createMemoryContainer } from "./container";
 import { DEMO_PRINCIPAL, seedCartagena } from "./demo-seed";
 
@@ -300,6 +301,46 @@ describe("Use cases wired through the composition root", () => {
     expect((await c.membership.guestSavedAccess(ana.id)).ok).toBe(true);
     const trip = await c.membership.getTrip(ana.id, tripId);
     expect(trip.ok && trip.value.seats.find((s) => s.id === seat("Ana"))?.linkKind).toBe("user");
+  });
+});
+
+describe("Foreign-currency expenses", () => {
+  const build = async (rates: FixedRateProvider | null) => {
+    const c = createMemoryContainer({ clock: fixedClock("2026-11-22T20:00:00-05:00"), ids: sequentialIds("fx"), rates });
+    const tripId = await seedCartagena(c);
+    return { c, tripId };
+  };
+
+  it("freezes the day's rate on creation and keeps it through edits", async () => {
+    const rates = new FixedRateProvider({ "USD:COP": "4000" });
+    const { c, tripId } = await build(rates);
+    const quote = await c.ledger.quoteRate(DEMO_PRINCIPAL, tripId, "USD");
+    expect(quote.ok && quote.value.rate).toBe("4000");
+    const r = await c.ledger.recordExpense(DEMO_PRINCIPAL, tripId, { currency: "USD", amount: 2_550 });
+    if (!r.ok) throw r.error;
+    expect(r.value.expense).toMatchObject({ amount: 2_550, baseAmount: 102_000, fxRate: "4000", fxSource: "api", ratePending: false });
+
+    // The provider moves, the expense doesn't: an edit keeps the frozen rate.
+    (rates as unknown as { rates: Record<string, string> }).rates["USD:COP"] = "5000";
+    const edited = await c.ledger.editExpenseMoney(DEMO_PRINCIPAL, tripId, r.value.expense.id, 1, { currency: "USD", amount: 3_000 });
+    expect(edited.ok && edited.value).toMatchObject({ baseAmount: 120_000, fxRate: "4000" });
+  });
+
+  it("waits for a rate when none can be had, then takes the card charge", async () => {
+    const { c, tripId } = await build(null);
+    const r = await c.ledger.recordExpense(DEMO_PRINCIPAL, tripId, { currency: "EUR", amount: 1_000 });
+    if (!r.ok) throw r.error;
+    expect(r.value.expense).toMatchObject({ ratePending: true, baseAmount: null });
+    const before = await c.settlement.getTripBalances(DEMO_PRINCIPAL, tripId);
+
+    const noRate = await c.ledger.setExpenseRate(DEMO_PRINCIPAL, tripId, r.value.expense.id, 1, {});
+    expect(!noRate.ok && noRate.error.code).toBe("invalid_state");
+    const charged = await c.ledger.setExpenseRate(DEMO_PRINCIPAL, tripId, r.value.expense.id, 1, { cardCharge: 47_300 });
+    expect(charged.ok && charged.value).toMatchObject({ ratePending: false, baseAmount: 47_300, fxSource: "card_charge" });
+    const after = await c.settlement.getTripBalances(DEMO_PRINCIPAL, tripId);
+    // Now it counts: Mateo paid 47.300 and owes his share of it.
+    const myShare = charged.ok ? charged.value.myShare! : 0;
+    expect(after.ok && before.ok && after.value.myBalance - before.value.myBalance).toBe(47_300 - myShare);
   });
 });
 

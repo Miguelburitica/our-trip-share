@@ -24,6 +24,10 @@ const WARNING_COPY = {
 export async function recordExpenseAction(input: {
   tripId: string;
   amount: number;
+  /** The expense's currency (default: the trip's). */
+  currency?: string;
+  /** What the card charged, in the trip's currency; wins over any rate. */
+  cardCharge?: number | null;
   category: string;
   title?: string;
   payerSeatId: string;
@@ -36,8 +40,17 @@ export async function recordExpenseAction(input: {
   const trip = await c.membership.getTrip(principal, TripId(input.tripId));
   if (!trip.ok) return { ok: false, message: COPY[trip.error.code] };
 
+  const currency = input.currency ? String(input.currency) : trip.value.baseCurrency;
+  const fx =
+    currency === trip.value.baseCurrency
+      ? undefined
+      : input.cardCharge != null
+        ? { kind: "card_charge" as const, baseAmount: Number(input.cardCharge) }
+        : // The ledger asks the rate provider itself (cached per day, so it matches the preview).
+          undefined;
   const result = await c.ledger.recordExpense(principal, TripId(input.tripId), {
-    currency: trip.value.baseCurrency,
+    currency,
+    fx,
     amount: Number(input.amount),
     category,
     title: input.title?.slice(0, 80) || null,
@@ -67,10 +80,8 @@ export async function editSplitAction(input: {
   const tripId = TripId(input.tripId);
   const current = await c.ledger.getExpense(principal, tripId, ExpenseId(String(input.expenseId)));
   if (!current.ok) return { ok: false, message: current.error.message || COPY[current.error.code] };
-  const trip = await c.membership.getTrip(principal, tripId);
-  if (!trip.ok) return { ok: false, message: COPY[trip.error.code] };
-  // Editing a foreign-currency expense would need its rate again; quick add only records base-currency ones.
-  if (current.value.currency !== trip.value.baseCurrency) return { ok: false, message: "Este gasto está en otra moneda; aún no se puede editar aquí" };
+  if (!current.value.currency) return { ok: false, message: "Este gasto aún no tiene monto" };
+  // A foreign-currency expense keeps its frozen rate (the ledger handles it).
   const split =
     input.split?.method === "exact"
       ? {
@@ -101,12 +112,21 @@ export async function deleteExpenseAction(tripId: string, expenseId: string): Pr
   redirect(`/t/${tripId}/gastos?borrado=1`);
 }
 
+/** Quick add's "≈" preview for a foreign currency. */
+export async function quoteRateAction(tripId: string, currency: string): Promise<{ ok: true; rate: string | null } | { ok: false }> {
+  const { id: principal } = await requirePrincipal();
+  const c = await getContainer();
+  const r = await c.ledger.quoteRate(principal, TripId(tripId), String(currency));
+  return r.ok ? { ok: true, rate: r.value.rate } : { ok: false };
+}
+
 export type ScanResult =
   | {
       ok: true;
       receiptPath: string;
       read: boolean;
       amount: number | null;
+      currency: string | null;
       title: string | null;
       category: string | null;
       note: string | null;
@@ -125,8 +145,8 @@ export async function scanReceiptAction(formData: FormData): Promise<ScanResult>
     mediaType: photo.type as "image/jpeg",
   });
   if (!r.ok) return { ok: false, message: r.error.message || COPY[r.error.code] };
-  const { receiptPath, read, amount, title, category, note } = r.value;
-  return { ok: true, receiptPath, read, amount, title, category, note };
+  const { receiptPath, read, amount, currency, title, category, note } = r.value;
+  return { ok: true, receiptPath, read, amount, currency, title, category, note };
 }
 
 export type GroupResult = { ok: true; group: { id: string; name: string; seatIds: string[]; canDelete: boolean } } | { ok: false; message: string };
@@ -227,4 +247,27 @@ export async function saveHandlesAction(
 export async function signOutAction() {
   await signOut();
   redirect("/");
+}
+
+/**
+ * Gasto en otra moneda: "La tarjeta cobró $X" (cardCharge) or, without it, the day's rate again
+ * (to settle a "tasa pendiente").
+ */
+export async function setExpenseRateAction(input: {
+  tripId: string;
+  expenseId: string;
+  expectedVersion: number;
+  cardCharge: number | null;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const { id: principal } = await requirePrincipal();
+  const c = await getContainer();
+  const r = await c.ledger.setExpenseRate(principal, TripId(input.tripId), ExpenseId(String(input.expenseId)), Number(input.expectedVersion), {
+    cardCharge: input.cardCharge == null ? null : Number(input.cardCharge),
+  });
+  if (!r.ok) {
+    if (r.error.code === "conflict") return { ok: false, message: "Alguien editó este gasto mientras tanto. Recarga para ver lo último." };
+    return { ok: false, message: r.error.message || COPY[r.error.code] };
+  }
+  revalidatePath(`/t/${input.tripId}`, "layout");
+  return { ok: true };
 }

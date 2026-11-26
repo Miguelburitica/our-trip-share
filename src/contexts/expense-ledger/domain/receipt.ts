@@ -68,8 +68,8 @@ export function prefillFromReading(reading: ReceiptReading | null, baseCurrency:
   const currency = isCurrencyCode(code) ? code : null;
   const title = reading.merchant?.trim().slice(0, 80) || null;
   const category = (CATEGORIES as readonly string[]).includes(reading.category ?? "") ? (reading.category as Category) : null;
-  if (!currency || currency !== baseCurrency) {
-    return { ...empty, title, category, currency, note: `La factura está en ${code}. Por ahora escribe el monto en ${baseCurrency}.` };
+  if (!currency) {
+    return { ...empty, title, category, note: `La factura está en ${code}, que aún no manejamos. Escribe el monto en ${baseCurrency}.` };
   }
   const amount = reading.total ? decimalToUnits(reading.total, currency) : null;
   return { amount, currency, title, category, note: amount === null ? "No encontré el total. Escríbelo." : null };

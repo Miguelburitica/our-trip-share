@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useRef, useState, useTransition } from "react";
-import { fmt } from "@/app/ui/money";
-import { deleteSplitGroupAction, recordExpenseAction, saveSplitGroupAction, scanReceiptAction } from "../actions";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { fmt, parseAmount } from "@/app/ui/money";
+import { CURRENCIES, isCurrencyCode } from "@/shared-kernel/money/currency";
+import { FxRate } from "@/shared-kernel/money/fx-rate";
+import { deleteSplitGroupAction, quoteRateAction, recordExpenseAction, saveSplitGroupAction, scanReceiptAction } from "../actions";
 
 const CATEGORIES = [
   ["comida", "Comida"],
@@ -15,6 +17,18 @@ const CATEGORIES = [
 ] as const;
 
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "000", "0", "back"] as const;
+const CURRENCY_CODES = Object.keys(CURRENCIES);
+const decimalsOf = (code: string) => (isCurrencyCode(code) ? CURRENCIES[code].exponent : 0);
+
+/** "≈ $98.000" in the trip's currency, or null while there's no rate. */
+function toBase(amount: number, from: string, to: string, rate: string | null): number | null {
+  if (!rate || !amount || !isCurrencyCode(from) || !isCurrencyCode(to)) return null;
+  try {
+    return FxRate.parse(rate).convert(amount, from, to);
+  } catch {
+    return null;
+  }
+}
 
 interface Person {
   id: string;
@@ -58,6 +72,10 @@ const andList = (xs: string[]) => new Intl.ListFormat("es", { type: "conjunction
 
 export function QuickAdd(props: { tripId: string; currency: string; mySeatId: string; people: Person[]; presets: Presets }) {
   const [digits, setDigits] = useState("");
+  // The expense's currency; the trip's (props.currency) unless they pick another.
+  const [cur, setCur] = useState(props.currency);
+  const [quote, setQuote] = useState<{ currency: string; rate: string | null } | null>(null);
+  const [cardCharge, setCardCharge] = useState<string | null>(null);
   const [category, setCategory] = useState<string>("otro");
   const [payerIndex, setPayerIndex] = useState(() => Math.max(0, props.people.findIndex((p) => p.id === props.mySeatId)));
   const [selected, setSelected] = useState<string[]>(() => props.presets.participants);
@@ -70,22 +88,42 @@ export function QuickAdd(props: { tripId: string; currency: string; mySeatId: st
   const [status, setStatus] = useState<null | { kind: "saved"; warnings: string[] } | { kind: "error"; message: string }>(null);
   const [pending, startTransition] = useTransition();
 
-  const amount = Number(digits || "0");
+  const foreign = cur !== props.currency;
+  const decimals = decimalsOf(cur);
+  const amount = decimals ? (parseAmount(digits, cur) ?? 0) : Number(digits || "0");
+  const rate = quote?.currency === cur ? quote.rate : null;
+  const charged = cardCharge === null ? null : parseAmount(cardCharge, props.currency);
+  const approxBase = foreign ? (charged ?? toBase(amount, cur, props.currency, rate)) : null;
+
+  useEffect(() => {
+    if (!foreign) return;
+    let live = true;
+    quoteRateAction(props.tripId, cur).then((r) => live && setQuote({ currency: cur, rate: r.ok ? r.rate : null }));
+    return () => {
+      live = false;
+    };
+  }, [cur, foreign, props.tripId]);
+
+  const pickCurrency = (code: string) => {
+    setStatus(null);
+    setCur(code);
+    setDigits("");
+    setCardCharge(null);
+  };
   const payer = props.people[payerIndex];
   const n = selected.length;
-  const perPerson = useMemo(() => {
-    if (!n || !amount) return "Elige quiénes";
-    const base = Math.floor(amount / n);
-    return amount % n ? `${fmt(base, props.currency)}–${fmt(base + 1, props.currency)} c/u` : `${fmt(base, props.currency)} c/u`;
-  }, [amount, n, props.currency]);
+  const each = Math.floor(amount / Math.max(n, 1));
+  const perPerson = !n || !amount ? "Elige quiénes" : amount % n ? `${fmt(each, cur)}–${fmt(each + 1, cur)} c/u` : `${fmt(each, cur)} c/u`;
 
   const press = (k: (typeof KEYS)[number]) => {
     setStatus(null);
     setDigits((d) => {
       if (k === "back") return d.slice(0, -1);
+      if (decimals && k === "000") return d.includes(",") ? d : (d || "0") + ",";
       if (d === "" && (k === "0" || k === "000")) return d;
+      if (decimals && d.includes(",") && d.length - d.indexOf(",") > decimals) return d;
       const next = d + k;
-      return next.length > 10 ? d : next;
+      return next.replace(",", "").length > 10 ? d : next;
     });
   };
   const toggle = (id: string) => {
@@ -126,7 +164,14 @@ export function QuickAdd(props: { tripId: string; currency: string; mySeatId: st
         return;
       }
       setReceipt({ path: r.receiptPath, title: r.title, note: r.note ?? (r.read ? null : "Foto adjunta. Escribe el monto.") });
-      if (r.amount) setDigits(String(r.amount));
+      if (r.currency && r.currency !== cur && CURRENCY_CODES.includes(r.currency)) {
+        setCur(r.currency);
+        setCardCharge(null);
+      }
+      if (r.amount) {
+        const d = decimalsOf(r.currency ?? cur);
+        setDigits(d ? `${Math.floor(r.amount / 10 ** d)},${String(r.amount % 10 ** d).padStart(d, "0")}` : String(r.amount));
+      }
       if (r.category) setCategory(r.category);
     } catch {
       setStatus({ kind: "error", message: "No se pudo subir la foto. Intenta de nuevo." });
@@ -162,6 +207,8 @@ export function QuickAdd(props: { tripId: string; currency: string; mySeatId: st
       const result = await recordExpenseAction({
         tripId: props.tripId,
         amount,
+        currency: cur,
+        cardCharge: foreign ? charged : null,
         category,
         payerSeatId: payer.id,
         participantIds: selected,
@@ -172,6 +219,7 @@ export function QuickAdd(props: { tripId: string; currency: string; mySeatId: st
         setStatus({ kind: "saved", warnings: result.warnings });
         setDigits("");
         setReceipt(null);
+        setCardCharge(null);
       } else {
         setStatus({ kind: "error", message: result.message });
       }
@@ -187,13 +235,63 @@ export function QuickAdd(props: { tripId: string; currency: string; mySeatId: st
           </svg>
         </Link>
         <h1 className="text-[17px] font-semibold">Nuevo gasto</h1>
-        <span className="flex min-h-11 items-center rounded-full bg-tint px-3.5 text-sm font-semibold">{props.currency}</span>
+        <label className="relative flex min-h-11 items-center gap-1 rounded-full bg-tint px-3.5 text-sm font-semibold">
+          {cur}
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden="true">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+          <select
+            aria-label="Moneda del gasto"
+            value={cur}
+            onChange={(e) => pickCurrency(e.target.value)}
+            className="absolute inset-0 cursor-pointer opacity-0"
+          >
+            {[props.currency, ...CURRENCY_CODES.filter((c) => c !== props.currency)].map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </label>
       </header>
 
       <div className="flex flex-col items-center gap-1.5 py-2 [@media(max-height:860px)]:py-0">
         <output aria-live="polite" className={`tabular text-[54px] leading-tight [@media(max-height:860px)]:text-[44px] font-bold tracking-tight ${amount ? "" : "text-[#b3a496]"}`}>
-          {fmt(amount, props.currency)}
+          {fmt(amount, cur)}
         </output>
+        {foreign && (
+          <span className="flex flex-wrap items-center justify-center gap-x-2 text-[13px] text-muted">
+            {cardCharge !== null ? (
+              <label className="flex items-center gap-1.5 font-semibold text-ink">
+                La tarjeta cobró
+                <input
+                  inputMode="decimal"
+                  autoFocus
+                  value={cardCharge}
+                  onChange={(e) => setCardCharge(e.target.value)}
+                  placeholder={props.currency}
+                  aria-label={`Lo que cobró la tarjeta en ${props.currency}`}
+                  className="h-8 w-28 rounded-full bg-tint px-3 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+                />
+              </label>
+            ) : (
+              <span>
+                {approxBase !== null
+                  ? `≈ ${fmt(approxBase, props.currency)}`
+                  : quote?.currency === cur && !rate
+                    ? "Sin tasa por ahora: queda pendiente"
+                    : "Buscando la tasa…"}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => setCardCharge(cardCharge === null ? "" : null)}
+              className="min-h-8 font-semibold text-accent-text"
+            >
+              {cardCharge === null ? "¿Cuánto cobró la tarjeta?" : "Usar la tasa del día"}
+            </button>
+          </span>
+        )}
         {status?.kind === "saved" && status.warnings.length > 0 && (
           <span className="text-[13px] font-medium text-accent-text">{status.warnings.join(" · ")}</span>
         )}
@@ -344,13 +442,15 @@ export function QuickAdd(props: { tripId: string; currency: string; mySeatId: st
 
       <div role="group" aria-label="Teclado" className="mt-auto grid grid-cols-3 gap-1.5 [@media(max-height:860px)]:gap-1">
         {KEYS.map((k) => (
-          <button key={k} type="button" onClick={() => press(k)} aria-label={k === "back" ? "Borrar" : k} className="flex h-12 items-center justify-center rounded-2xl text-2xl font-medium active:bg-tint [@media(max-height:860px)]:h-10">
+          <button key={k} type="button" onClick={() => press(k)} aria-label={k === "back" ? "Borrar" : k === "000" && decimals ? "Coma decimal" : k} className="flex h-12 items-center justify-center rounded-2xl text-2xl font-medium active:bg-tint [@media(max-height:860px)]:h-10">
             {k === "back" ? (
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M10 5a2 2 0 0 0-1.344.519l-6.328 5.74a1 1 0 0 0 0 1.481l6.328 5.741A2 2 0 0 0 10 19h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z" />
                 <path d="m12 9 6 6" />
                 <path d="m18 9-6 6" />
               </svg>
+            ) : k === "000" && decimals ? (
+              ","
             ) : (
               k
             )}

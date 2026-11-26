@@ -28,6 +28,9 @@ export function SplitEditor(props: {
     });
   const [rows, setRows] = useState<SplitRow[]>(initialRows);
   const [totalText, setTotalText] = useState(amountInput(props.total, props.currency));
+  // What's being typed in a per-person field, kept raw so "12," survives in USD/EUR.
+  const [typing, setTyping] = useState<{ seatId: string; text: string } | null>(null);
+  const whole = !/[.,]/.test(amountInput(1, props.currency));
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -90,10 +93,10 @@ export function SplitEditor(props: {
             <input
               value={totalText}
               disabled={!props.canEditTotal}
-              inputMode={props.currency === "COP" ? "numeric" : "decimal"}
+              inputMode={whole ? "numeric" : "decimal"}
               onChange={(e) => {
                 const units = parseAmount(e.target.value, props.currency);
-                setTotalText(units === null ? "" : props.currency === "COP" ? amountInput(units, props.currency) : e.target.value);
+                setTotalText(units === null ? "" : whole ? amountInput(units, props.currency) : e.target.value);
               }}
               className="tabular h-11 w-40 bg-transparent text-right text-[20px] font-bold outline-none disabled:text-ink"
             />
@@ -129,11 +132,15 @@ export function SplitEditor(props: {
                   <input
                     aria-label={`Lo que le toca a ${p.name}`}
                     disabled={!row.included}
-                    inputMode={props.currency === "COP" ? "numeric" : "decimal"}
-                    value={value === null ? "" : amountInput(value, props.currency)}
+                    inputMode={whole ? "numeric" : "decimal"}
+                    value={typing?.seatId === p.id && !whole ? typing.text : value === null ? "" : amountInput(value, props.currency)}
                     placeholder="—"
                     onFocus={(e) => e.target.select()}
-                    onChange={(e) => update(p.id, { fixed: parseAmount(e.target.value, props.currency) ?? 0 })}
+                    onBlur={() => setTyping(null)}
+                    onChange={(e) => {
+                      setTyping({ seatId: p.id, text: e.target.value });
+                      update(p.id, { fixed: parseAmount(e.target.value, props.currency) ?? 0 });
+                    }}
                     className={`tabular h-11 w-32 rounded-xl px-3 text-right text-[16px] outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
                       row.fixed !== null ? "bg-accent-soft font-bold text-accent-text" : "bg-tint font-semibold"
                     } disabled:bg-transparent`}

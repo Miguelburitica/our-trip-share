@@ -1,8 +1,10 @@
 import type { Clock } from "@/shared-kernel/clock";
-import { forbidden, invalidState, notFound } from "@/shared-kernel/errors";
+import { forbidden, invalidState, notFound, validationError } from "@/shared-kernel/errors";
+import { isCurrencyCode } from "@/shared-kernel/money/currency";
 import { ExpenseId, SplitGroupId, type IdGenerator, type PrincipalId, type SeatId, type TripId } from "@/shared-kernel/ids";
 import { attempt, type Result } from "@/shared-kernel/result";
 import { Expense, type Category, type Context, type ExpenseEffect, type ExpenseType, type MoneyInput } from "../domain/expense";
+import type { FxInput } from "../domain/money-block";
 import { evaluateGuards, type ExpenseWarning } from "../domain/guards";
 import { SplitGroup } from "../domain/split-group";
 import { suggestSplit } from "../domain/split-suggestion";
@@ -16,6 +18,7 @@ import {
 import type {
   ExpenseMoneyChanged,
   ExpenseRepository,
+  FxRateProvider,
   LedgerEventPublisher,
   MembershipReader,
   ReceiptReader,
@@ -32,6 +35,8 @@ export interface ExpenseLedgerDeps {
   reader?: ReceiptReader | null;
   /** Optional: who hears about saved money changes. */
   events?: LedgerEventPublisher;
+  /** Optional: daily FX rates; without it foreign-currency expenses wait for a rate ("tasa pendiente"). */
+  rates?: FxRateProvider | null;
   ids: IdGenerator;
   clock: Clock;
 }
@@ -47,9 +52,15 @@ export interface ExpenseDTO {
   amount: number | null;
   baseAmount: number | null;
   ratePending: boolean;
+  /** "1 <currency> = fxRate <base>", frozen; null in the base currency or while pending. */
+  fxRate: string | null;
+  fxSource: "same_currency" | "api" | "manual" | "card_charge" | null;
   payers: Array<{ seatId: SeatId; amount: number }>;
   shares: Array<{ seatId: SeatId; amount: number; baseAmount: number | null }>;
+  /** My share in base units; null if I'm not in it or while the rate is pending. */
   myShare: number | null;
+  /** Whether I'm among the people it's split between. */
+  includesMe: boolean;
   moneyVersion: number;
   createdBy: SeatId;
   receiptCount: number;
@@ -69,9 +80,12 @@ export function toExpenseDTO(expense: Expense, mySeatId: SeatId | null): Expense
     amount: money?.props.amount ?? null,
     baseAmount: money?.props.baseAmount ?? null,
     ratePending: money?.ratePending ?? false,
+    fxRate: money && money.props.currency !== money.props.baseCurrency ? money.props.fxRate : null,
+    fxSource: money?.props.fxSource ?? null,
     payers: money?.props.payers.map((p) => ({ seatId: p.seatId, amount: p.amount })) ?? [],
     shares: money?.props.shares.map((s) => ({ seatId: s.seatId, amount: s.amount, baseAmount: s.baseAmount })) ?? [],
-    myShare: mine ? (mine.baseAmount ?? mine.amount) : null,
+    myShare: mine ? mine.baseAmount : null,
+    includesMe: mine !== undefined,
     moneyVersion: expense.moneyVersion,
     createdBy: expense.createdBy,
     receiptCount: expense.toPrimitives().receiptPaths.length,
@@ -140,6 +154,78 @@ export class ExpenseLedgerUseCases {
     return expense;
   }
 
+  /** The expense's day where the group is (rates are daily). */
+  private static rateDay(at: Date) {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(at);
+  }
+
+  /** A rate from the provider for a foreign-currency amount, or undefined ("tasa pendiente"). */
+  private async fetchFx(currency: string, baseCurrency: string, at: Date): Promise<FxInput | undefined> {
+    if (currency === baseCurrency || !this.deps.rates) return undefined;
+    try {
+      const rate = await this.deps.rates.rateFor(currency, baseCurrency, ExpenseLedgerUseCases.rateDay(at));
+      return rate ? { kind: "rate", rate, source: "api" } : undefined;
+    } catch (error) {
+      console.error("fx rate lookup failed", error);
+      return undefined;
+    }
+  }
+
+  /**
+   * The rate a money edit keeps: the frozen one (R: rates never move after creation), or the
+   * card charge when the total didn't change. A new currency or a pending rate asks the provider.
+   */
+  private async keptFx(expense: Expense, input: MoneyInput, baseCurrency: string): Promise<FxInput | undefined> {
+    if (input.fx || input.currency === baseCurrency) return input.fx;
+    const m = expense.money?.props;
+    if (m && m.currency === input.currency && m.fxRate) {
+      if (m.fxSource === "card_charge" && m.amount === input.amount && m.baseAmount !== null) {
+        return { kind: "card_charge", baseAmount: m.baseAmount };
+      }
+      return { kind: "rate", rate: m.fxRate, source: m.fxSource === "api" ? "api" : "manual" };
+    }
+    return this.fetchFx(input.currency, baseCurrency, expense.occurredAt);
+  }
+
+  /** Quick add's "≈ $98.000 COP" preview: today's rate from the provider, or null. */
+  quoteRate(principalId: PrincipalId, tripId: TripId, currency: string): Promise<Result<{ rate: string | null }>> {
+    return attempt(async () => {
+      const ctx = await this.context(principalId, tripId);
+      if (!isCurrencyCode(currency)) throw validationError("Moneda no soportada");
+      const fx = await this.fetchFx(currency, ctx.trip.baseCurrency, ctx.now);
+      return { rate: currency === ctx.trip.baseCurrency ? "1" : fx?.kind === "rate" ? fx.rate : null };
+    });
+  }
+
+  /**
+   * Sets a foreign-currency expense's base amount: what the card actually charged, or (without
+   * one) the provider's rate for the expense's day, e.g. to settle a "tasa pendiente".
+   */
+  setExpenseRate(
+    principalId: PrincipalId,
+    tripId: TripId,
+    expenseId: ExpenseId,
+    expectedVersion: number,
+    input: { cardCharge?: number | null },
+  ): Promise<Result<ExpenseDTO>> {
+    return attempt(async () => {
+      const ctx = await this.context(principalId, tripId);
+      const expense = await this.load(tripId, expenseId);
+      const m = expense.money?.props;
+      if (!m || m.currency === ctx.trip.baseCurrency) throw invalidState("Este gasto está en la moneda del viaje");
+      const fx: FxInput | undefined =
+        input.cardCharge != null
+          ? { kind: "card_charge", baseAmount: input.cardCharge }
+          : await this.fetchFx(m.currency, ctx.trip.baseCurrency, expense.occurredAt);
+      if (!fx) throw invalidState("No pudimos traer la tasa. Escribe lo que cobró la tarjeta.");
+      const effect = expense.effect;
+      expense.changeMoney(expectedVersion, { currency: m.currency, amount: m.amount, fx }, ctx);
+      await this.deps.expenses.save(expense, expectedVersion);
+      await this.publish("edited", expense, ctx, effect);
+      return toExpenseDTO(expense, ctx.actor);
+    });
+  }
+
   recordExpense(
     principalId: PrincipalId,
     tripId: TripId,
@@ -154,7 +240,8 @@ export class ExpenseLedgerUseCases {
     return attempt(async () => {
       const ctx = await this.context(principalId, tripId);
       assertReceiptPaths(input.receiptPaths ?? [], tripId);
-      const expense = Expense.record({ ...input, id: ExpenseId(this.deps.ids.next()) }, ctx);
+      const fx = input.fx ?? (await this.fetchFx(input.currency, ctx.trip.baseCurrency, input.occurredAt ?? ctx.now));
+      const expense = Expense.record({ ...input, fx, id: ExpenseId(this.deps.ids.next()) }, ctx);
       const others = await this.deps.expenses.listByTrip(tripId);
       await this.deps.expenses.save(expense, null);
       await this.publish("created", expense, ctx, null);
@@ -200,7 +287,8 @@ export class ExpenseLedgerUseCases {
       const ctx = await this.context(principalId, tripId);
       const expense = await this.load(tripId, expenseId);
       const effect = expense.effect;
-      expense.changeMoney(expectedVersion, input, ctx);
+      const fx = await this.keptFx(expense, input, ctx.trip.baseCurrency);
+      expense.changeMoney(expectedVersion, { ...input, fx }, ctx);
       await this.deps.expenses.save(expense, expectedVersion);
       await this.publish("edited", expense, ctx, effect);
       return toExpenseDTO(expense, ctx.actor);

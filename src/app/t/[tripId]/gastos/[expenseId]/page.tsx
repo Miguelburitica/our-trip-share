@@ -4,6 +4,7 @@ import { expenseTitle, fmt } from "@/app/ui/money";
 import { ExpenseId } from "@/shared-kernel/ids";
 import { loadTrip } from "../../data";
 import { DeleteExpenseButton } from "./delete-button";
+import { RateEditor } from "./rate-editor";
 import { SplitEditor } from "./split-editor";
 
 const CATEGORY = { comida: "Comida", transporte: "Transporte", super: "Súper", tragos: "Tragos", alojamiento: "Alojamiento", planes: "Planes", otro: "Otro" } as const;
@@ -29,7 +30,12 @@ export default async function DetalleGasto({ params }: { params: Promise<{ tripI
   const initials = (id: string) => (trip.seats.find((s) => s.id === id)?.displayName ?? "?").slice(0, 1);
   const people = trip.seats.filter((s) => s.status === "active" && !s.awaitingApproval).map((s) => ({ id: s.id as string, name: s.id === trip.mySeatId ? "Tú" : s.displayName }));
   const closed = trip.status === "closed";
-  const editable = !closed && e.status === "complete" && e.amount !== null && cur === trip.baseCurrency;
+  const editable = !closed && e.status === "complete" && e.amount !== null && !e.ratePending;
+  const foreign = e.status === "complete" && cur !== trip.baseCurrency;
+  // "1 USD = $3.572,87" with the rate's own decimals, in the trip's currency format.
+  const rateLabel = e.fxRate
+    ? `1 ${cur} = ${new Intl.NumberFormat("es-CO", { maximumFractionDigits: 2 }).format(Number(e.fxRate))} ${trip.baseCurrency}`
+    : null;
 
   return (
     <main className="flex flex-col gap-6 px-5 pt-5 pb-36">
@@ -57,6 +63,29 @@ export default async function DetalleGasto({ params }: { params: Promise<{ tripI
           )}
         </span>
       </section>
+
+      {foreign && (
+        <section aria-label="Moneda" className="flex flex-col gap-2 rounded-3xl bg-tint px-4.5 py-4">
+          {e.ratePending ? (
+            <>
+              <p className="text-[15px] font-semibold">Tasa pendiente</p>
+              <p className="-mt-1 text-sm text-ink-2">Mientras no tenga tasa, este gasto no cuenta en las cuentas.</p>
+            </>
+          ) : (
+            <>
+              <p className="tabular text-[15px] font-semibold">
+                {fmt(e.baseAmount!, trip.baseCurrency)} {trip.baseCurrency}
+              </p>
+              <p className="-mt-1 text-sm text-ink-2">
+                {e.fxSource === "card_charge" ? `Lo que cobró la tarjeta · ${rateLabel}` : `${rateLabel} · tasa del día del gasto`}
+              </p>
+            </>
+          )}
+          {!closed && (
+            <RateEditor tripId={tripId} expenseId={e.id} version={e.moneyVersion} baseCurrency={trip.baseCurrency} pending={e.ratePending} charged={e.fxSource === "card_charge"} />
+          )}
+        </section>
+      )}
 
       {e.payers.length > 0 && (
         <section aria-label="Pagó" className="flex flex-col gap-2.5">
@@ -102,14 +131,7 @@ export default async function DetalleGasto({ params }: { params: Promise<{ tripI
           wasExact={e.splitMethod === "exact"}
         />
       )}
-      {closed ? (
-        <p className="px-1 text-sm text-muted">El viaje está cerrado: los gastos ya no se editan.</p>
-      ) : (
-        !editable &&
-        e.status === "complete" && (
-          <p className="px-1 text-sm text-muted">Este gasto está en otra moneda; aún no se puede editar el reparto aquí.</p>
-        )
-      )}
+      {closed && <p className="px-1 text-sm text-muted">El viaje está cerrado: los gastos ya no se editan.</p>}
 
       {!closed && e.status !== "deleted" && <DeleteExpenseButton tripId={tripId} expenseId={e.id} />}
 

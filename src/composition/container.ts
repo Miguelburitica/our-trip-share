@@ -1,4 +1,4 @@
-import type { ExpenseRepository, ReceiptReader, ReceiptStore, SplitGroupRepository } from "@/contexts/expense-ledger/application/ports";
+import type { ExpenseRepository, FxRateProvider, ReceiptReader, ReceiptStore, SplitGroupRepository } from "@/contexts/expense-ledger/application/ports";
 import { ExpenseLedgerUseCases } from "@/contexts/expense-ledger/application/use-cases";
 import { InMemoryExpenseRepository } from "@/contexts/expense-ledger/infrastructure/in-memory-expense-repository";
 import { InMemoryReceiptStore } from "@/contexts/expense-ledger/infrastructure/in-memory-receipt-store";
@@ -58,6 +58,8 @@ export interface ContainerOptions {
   ids?: IdGenerator;
   /** Reads receipt photos; null/absent attaches photos without reading them. */
   reader?: ReceiptReader | null;
+  /** Daily FX rates; null/absent leaves foreign-currency expenses "tasa pendiente". */
+  rates?: FxRateProvider | null;
 }
 
 /**
@@ -98,6 +100,7 @@ export function createContainer(repos: Repositories, opts: ContainerOptions = {}
       splitGroups,
       receipts,
       reader: opts.reader ?? null,
+      rates: opts.rates ?? null,
       membership: ledgerMembershipReader(trips),
       events: settlementListener(settlement),
       ids,

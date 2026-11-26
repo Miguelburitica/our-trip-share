@@ -36,10 +36,14 @@ describe("Receipt reading → quick add", () => {
   it("explains instead of guessing", () => {
     expect(prefillFromReading(null, "COP").note).toMatch(/No pude leer/);
     expect(prefillFromReading(reading({ isReceipt: false }), "COP").note).toMatch(/No parece/);
-    const usd = prefillFromReading(reading({ total: "42.50", currency: "USD" }), "COP");
-    expect(usd).toMatchObject({ amount: null, title: "La Cevichería", note: expect.stringMatching(/USD/) });
+    const chf = prefillFromReading(reading({ total: "42.50", currency: "CHF" }), "COP");
+    expect(chf).toMatchObject({ amount: null, currency: null, title: "La Cevichería", note: expect.stringMatching(/CHF/) });
     expect(prefillFromReading(reading({ total: null }), "COP")).toMatchObject({ amount: null, note: expect.stringMatching(/total/) });
     expect(prefillFromReading(reading({ category: "casino" }), "COP").category).toBeNull();
+  });
+
+  it("reads a receipt in another supported currency in that currency's units", () => {
+    expect(prefillFromReading(reading({ total: "42.50", currency: "USD" }), "COP")).toMatchObject({ amount: 4250, currency: "USD", note: null });
   });
 
   it("only accepts receipt paths stored under the same trip", () => {

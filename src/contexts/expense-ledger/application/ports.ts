@@ -52,3 +52,11 @@ export interface ReceiptStore {
 export interface ReceiptReader {
   read(image: ReceiptImage, hint: { baseCurrency: string }): Promise<ReceiptReading | null>;
 }
+
+/**
+ * Daily exchange rates for an expense's date. Returns "1 FROM = rate TO" as a plain decimal
+ * string, or null when no rate can be had (the expense is then saved as "tasa pendiente").
+ */
+export interface FxRateProvider {
+  rateFor(from: string, to: string, date: string): Promise<string | null>;
+}
