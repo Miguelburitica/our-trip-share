@@ -24,4 +24,4 @@
 
 - [x] 5.1 Build the quick-add sheet (Tonal design, keypad, category chips, split picker, inline warnings) calling `recordExpense`, with split presets: "Igual que el último", "Todos menos…" labels and saved groups (`split_groups`, `getQuickAddDefaults`, `saveSplitGroup`, `deleteSplitGroup`); verify in the browser, with `npm test`, `npm run test:db` and pgTAP
 - [x] 5.2 Build the Gastos list grouped by day showing "tu parte"; verify in the browser
-- [x] 5.3 Receipt photos in quick add: private `receipts` bucket, `scanReceipt` / `receiptUrl` use cases, `ReceiptReader` port with a Claude vision adapter (on when `ANTHROPIC_API_KEY` is set), "Ver factura" in Gastos; verify with Vitest, `npm run test:db` and in the browser (attach path; live reading not yet verified without a key)
+- [x] 5.3 Receipt photos in quick add: private `receipts` bucket, `scanReceipt` / `receiptUrl` use cases, `ReceiptReader` port with an OpenRouter vision adapter (on when `OPENROUTER_API_KEY` is set; model `OPENROUTER_RECEIPT_MODEL`), "Ver factura" in Gastos; verify with Vitest, `npm run test:db` and in the browser (attach path; live reading not yet verified without a key)

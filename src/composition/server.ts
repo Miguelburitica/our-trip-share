@@ -1,5 +1,5 @@
 import "server-only";
-import { ClaudeReceiptReader } from "@/contexts/expense-ledger/infrastructure/claude-receipt-reader";
+import { OpenRouterReceiptReader } from "@/contexts/expense-ledger/infrastructure/openrouter-receipt-reader";
 import { createSupabaseContainer, createMemoryContainer, type Container } from "./container";
 import { seedCartagena } from "./demo-seed";
 import { serviceClient } from "@/platform/supabase/clients";
@@ -18,8 +18,11 @@ const g = globalThis as unknown as { __ourShare?: Promise<MemoryHolder> };
 // Module scope, not globalThis: it holds no data, so a hot reload should rebuild it with new code.
 let dbContainer: Container | undefined;
 
-/** Receipt reading is on when the server has an Anthropic API key (see .env.example). */
-const reader = () => (process.env.ANTHROPIC_API_KEY ? new ClaudeReceiptReader() : null);
+/** Receipt reading is on when the server has an OpenRouter key (see .env.example). */
+const reader = () => {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  return apiKey ? new OpenRouterReceiptReader({ apiKey, model: process.env.OPENROUTER_RECEIPT_MODEL }) : null;
+};
 
 async function buildMemory(): Promise<MemoryHolder> {
   const container = createMemoryContainer({ reader: reader() });

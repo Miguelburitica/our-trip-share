@@ -27,7 +27,7 @@ npm run dev
 ```
 Create a trip, tap "Invitar" on a person, and open the link in a private window to join as them.
 
-Receipt reading ("Foto de la factura") uses Claude: add `ANTHROPIC_API_KEY` to `.env.local`. Without it, photos are attached to expenses but not read.
+Receipt reading ("Foto de la factura") goes through OpenRouter: add `OPENROUTER_API_KEY` (and optionally `OPENROUTER_RECEIPT_MODEL`) to `.env.local`. Without it, photos are attached to expenses but not read.
 
 ## Checks
 ```bash
