@@ -25,7 +25,7 @@ npm run db:reset     # apply supabase/migrations
 cp .env.example .env.local   # fill the keys from `npx supabase status`
 npm run dev
 ```
-Create a trip, tap "Invitar" on a person, and open the link in a private window to join as them.
+Create a trip, then in Viaje either tap "Invitar" on a person (personal link) or "Crear enlace y QR" (one link for the group, with approvals). Open a link in a private window to join as that person. "Reenviar" moves a seat to a new phone. Sign-in codes arrive in Mailpit.
 
 Receipt reading ("Foto de la factura") goes through OpenRouter: add `OPENROUTER_API_KEY` (and optionally `OPENROUTER_RECEIPT_MODEL`) to `.env.local`. Without it, photos are attached to expenses but not read.
 

@@ -7,7 +7,7 @@ export default async function NuevoGasto({ params }: { params: Promise<{ tripId:
   const presets = await c.ledger.getQuickAddDefaults(principal, tripId);
   if (!presets.ok) throw new Error("No pudimos preparar el registro");
   const people = trip.seats
-    .filter((s) => s.status === "active")
+    .filter((s) => s.status === "active" && !s.awaitingApproval)
     .map((s) => ({
       id: s.id as string,
       name: s.id === trip.mySeatId ? "Tú" : s.displayName,

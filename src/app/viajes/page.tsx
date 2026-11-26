@@ -21,7 +21,7 @@ export default async function Viajes() {
                 <span className="flex flex-1 flex-col">
                   <span className="text-[16px] font-semibold">{t.name}</span>
                   <span className="text-[13px] text-muted">
-                    {t.seats.length} personas · {t.status === "active" ? "Activo" : t.status === "settling" ? "Liquidando" : "Cerrado"}
+                    {t.seats.filter((s) => !s.awaitingApproval).length} personas · {t.status === "active" ? "Activo" : t.status === "settling" ? "Liquidando" : "Cerrado"}
                   </span>
                 </span>
                 <span aria-hidden className="text-[20px] text-muted">›</span>

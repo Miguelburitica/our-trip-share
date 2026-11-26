@@ -25,6 +25,8 @@ export interface SeatDTO {
   pendingSince: string | null;
   defaultExcluded: boolean;
   createdBy: SeatId | null;
+  /** "No estoy en la lista" request not approved yet: hide it from splits and lists. */
+  awaitingApproval: boolean;
 }
 
 export interface TripDTO {
@@ -65,6 +67,7 @@ export function toTripDTO(trip: Trip, mySeatId: SeatId): TripDTO {
       pendingClaim: s.pendingClaim !== null,
       pendingSince: s.pendingClaim?.requestedAt.toISOString() ?? null,
       createdBy: s.createdBy,
+      awaitingApproval: s.awaitingApproval,
       defaultExcluded: s.defaultExcluded,
     })),
   };

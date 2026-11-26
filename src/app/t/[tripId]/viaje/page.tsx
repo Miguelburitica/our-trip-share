@@ -70,9 +70,9 @@ export default async function Viaje({
       {real && <JoinLinkCard tripId={trip.id} tripName={trip.name} url={joinUrl} qrSvg={qrSvg} canManage={canInvite} />}
 
       <section aria-label="Personas" className="flex flex-col gap-2.5">
-        <h2 className="px-1 text-[15px] font-semibold">Personas · {trip.seats.length}</h2>
+        <h2 className="px-1 text-[15px] font-semibold">Personas · {trip.seats.filter((s) => !s.awaitingApproval).length}</h2>
         <ul className="rounded-3xl bg-surface px-4.5 py-1 shadow-card">
-          {trip.seats.filter((s) => s.linked || !s.pendingClaim || s.createdBy !== null).map((s) => (
+          {trip.seats.filter((s) => !s.awaitingApproval).map((s) => (
             <li key={s.id} className="flex min-h-[58px] items-center gap-3">
               <span
                 className={`flex size-9 flex-none items-center justify-center rounded-full text-[13px] font-semibold ${

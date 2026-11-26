@@ -51,9 +51,8 @@ reset role;
 select throws_ok($$ select * from public.claim_seat_with_invite('tok-juli') $$,
   'P0001', null, 'a claimed personal link cannot be reused');
 set local role authenticated;
-select is((select count(*)::int from public.trip_unclaimed_first_names(
-  (select trip_id from public.seats where id = (select seat_id from public.trip_unclaimed_first_names(
-     (select id from public.trips limit 1)) limit 1)))), 0, 'stranger cannot even resolve trip ids it cannot see');
+select throws_ok($$ select * from public.trip_unclaimed_first_names(gen_random_uuid()) $$, '42501', null,
+  'clients cannot list unclaimed names (the app serves the generic link)');
 select is((select count(*)::int from public.seats), 0, 'stranger sees no seats');
 
 -- ---------- expense ledger ----------

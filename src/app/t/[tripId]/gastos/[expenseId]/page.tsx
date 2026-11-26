@@ -27,7 +27,7 @@ export default async function DetalleGasto({ params }: { params: Promise<{ tripI
   const base = `/t/${tripId}`;
   const cur = e.currency ?? trip.baseCurrency;
   const initials = (id: string) => (trip.seats.find((s) => s.id === id)?.displayName ?? "?").slice(0, 1);
-  const people = trip.seats.filter((s) => s.status === "active").map((s) => ({ id: s.id as string, name: s.id === trip.mySeatId ? "Tú" : s.displayName }));
+  const people = trip.seats.filter((s) => s.status === "active" && !s.awaitingApproval).map((s) => ({ id: s.id as string, name: s.id === trip.mySeatId ? "Tú" : s.displayName }));
   const editable = e.status === "complete" && e.amount !== null && cur === trip.baseCurrency;
 
   return (

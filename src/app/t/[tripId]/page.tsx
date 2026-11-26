@@ -31,7 +31,7 @@ export default async function Inicio({ params }: { params: Promise<{ tripId: str
     <main className="flex flex-col gap-8 px-5 pt-14 pb-36">
       <header className="px-1">
         <h1 className="text-[22px] font-bold tracking-tight">{trip.name}</h1>
-        <p className="text-sm text-muted">{trip.seats.length} personas</p>
+        <p className="text-sm text-muted">{trip.seats.filter((s) => !s.awaitingApproval).length} personas</p>
       </header>
 
       <section aria-label="Tu saldo" className="flex flex-col gap-5 rounded-[28px] bg-tint px-6 py-7">

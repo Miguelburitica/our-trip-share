@@ -60,8 +60,13 @@ export class Seat {
   get isLinked() {
     return this.props.link.kind !== "none";
   }
+  /** Created by a visitor with "No estoy en la lista" and not approved yet: not part of the trip. */
+  get awaitingApproval() {
+    return this.props.link.kind === "none" && this.props.createdBy === null && this.props.role !== "owner" && this.props.pendingClaim !== null;
+  }
+  /** Counts in splits and balances: not marked as left, and not a request still waiting for approval. */
   get isActive() {
-    return this.props.status === "active";
+    return this.props.status === "active" && !this.awaitingApproval;
   }
   get isAdmin() {
     return this.props.role === "owner" || this.props.role === "admin";

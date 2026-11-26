@@ -275,6 +275,16 @@ describe("Use cases wired through the composition root", () => {
     const blind = await c.membership.getTrip(leo.id, tripId);
     expect(!blind.ok && blind.error.code).toBe("forbidden");
 
+    // "No estoy en la lista" stays out of splits and balances until approved.
+    const sofi = { id: PrincipalId("guest-sofi"), kind: "guest" as const };
+    expect((await c.membership.requestJoin(tripId, link.value.token, sofi, { newName: "Sofi" })).ok).toBe(true);
+    const balances = await c.settlement.getTripBalances(DEMO_PRINCIPAL, tripId);
+    const sofiSeat = (await c.membership.getTrip(DEMO_PRINCIPAL, tripId));
+    if (!sofiSeat.ok || !balances.ok) throw new Error("setup");
+    const pendingSofi = sofiSeat.value.seats.find((s) => s.displayName === "Sofi")!;
+    expect(pendingSofi.awaitingApproval).toBe(true);
+    expect(balances.value.balances.some((b) => b.seatId === pendingSofi.id)).toBe(false);
+
     expect((await c.membership.approveClaim(DEMO_PRINCIPAL, tripId, seat("Leo"))).ok).toBe(true);
     const inside = await c.membership.getTrip(leo.id, tripId);
     expect(inside.ok && inside.value.mySeatId).toBe(seat("Leo"));

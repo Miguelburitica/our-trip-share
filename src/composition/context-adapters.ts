@@ -46,7 +46,8 @@ export function settlementMembershipReader(trips: TripRepository): SettlementMem
         baseCurrency: trip.baseCurrency,
         settleMode: trip.settleMode,
         hubSeatId: trip.hubSeatId,
-        seats: trip.allSeats.map((s) => ({ id: s.id, isAdmin: s.isAdmin })),
+        // A seat waiting for approval isn't in the trip yet: no balance, no plan row.
+        seats: trip.allSeats.filter((s) => !s.awaitingApproval).map((s) => ({ id: s.id, isAdmin: s.isAdmin })),
       };
     },
     async seatOf(tripId: TripId, principalId: PrincipalId) {
