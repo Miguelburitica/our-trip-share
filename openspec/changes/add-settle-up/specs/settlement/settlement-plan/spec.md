@@ -71,3 +71,14 @@ While a trip is Liquidando, each member SHALL be able to answer "Todo bien" or a
 #### Scenario: Open questions warn before closing
 - **WHEN** an admin closes a trip with 1 open question
 - **THEN** the confirmation warns about it, and closing is still allowed
+
+### Requirement: Read-only summary link
+An owner or admin SHALL be able to create a summary link that anyone can open without signing in. It SHALL show the trip's name and dates, the total spent, what each person paid, used and their balance, la vaca's cash and the plan, and nothing else (no expense details, links or payment details). Creating it again SHALL replace the old link, and turning it off SHALL make it stop working.
+
+#### Scenario: Shared in the group chat
+- **WHEN** Mateo creates the summary link for Cartagena and someone opens it without an account
+- **THEN** they see the 4.332.000 total and the 5 transfers
+
+#### Scenario: Turned off
+- **WHEN** an admin turns the link off
+- **THEN** opening it shows "Este resumen ya no está disponible"

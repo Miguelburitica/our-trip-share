@@ -29,6 +29,8 @@ Create a trip, then in Viaje either tap "Invitar" on a person (personal link) or
 
 For a shared kitty, tap "Hacer vaca" in Viaje and pick who keeps the money; people put money in from Cuentas, la vaca can pay in quick add, and the leftover goes back in proportion to what each put in.
 
+Cuentas also has "Resumen para el grupo": a read-only link (no sign-in) with totals and who pays whom, for the group chat. Gastos has "Descargar CSV".
+
 When the trip is over, an admin taps "Empezar a liquidar" in Cuentas: the plan freezes, everyone gets "Revisa tu parte" on Inicio, and later changes show up as "ajuste" rows. "Cerrar viaje" needs no receipts without an amount and no payments waiting for confirmation; after that the trip is read-only until the owner reopens it.
 
 Receipt reading ("Foto de la factura") goes through OpenRouter: add `OPENROUTER_API_KEY` (and optionally `OPENROUTER_RECEIPT_MODEL`) to `.env.local`. Without it, photos are attached to expenses but not read.

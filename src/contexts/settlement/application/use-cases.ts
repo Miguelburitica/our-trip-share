@@ -3,6 +3,7 @@ import { forbidden, invalidState, notFound } from "@/shared-kernel/errors";
 import { NoticeId, SettlementId, type IdGenerator, type PrincipalId, type SeatId, type TripId } from "@/shared-kernel/ids";
 import { CURRENCIES } from "@/shared-kernel/money/currency";
 import { isWithinDust } from "@/shared-kernel/money/money";
+import { randomToken } from "@/shared-kernel/random-token";
 import { attempt, type Result } from "@/shared-kernel/result";
 import { detectReopened, type ChangeCause, type LedgerChange } from "../domain/balance-notice";
 import { computeBalances, ledgerBalances, overpaymentCredit } from "../domain/balances";
@@ -17,6 +18,7 @@ import type {
   PayoutHandleRepository,
   PlanSnapshotRepository,
   ShareReviewRepository,
+  SummaryLinkRepository,
   LedgerReader,
   SettlementMembershipReader,
   SettlementRepository,
@@ -29,6 +31,7 @@ export interface SettlementDeps {
   handles: PayoutHandleRepository;
   snapshots: PlanSnapshotRepository;
   reviews: ShareReviewRepository;
+  links: SummaryLinkRepository;
   ledger: LedgerReader;
   membership: SettlementMembershipReader;
   ids: IdGenerator;
@@ -60,6 +63,18 @@ export interface BalancesDTO {
     cash: number;
     contributions: Array<{ seatId: SeatId; amount: number }>;
   } | null;
+}
+
+/** What the read-only summary link shows: totals and who pays whom, no expense details. */
+export interface PublicSummaryDTO {
+  tripId: TripId;
+  phase: SettlementTripView["status"];
+  baseCurrency: string;
+  /** Spent by the group (money received subtracts). */
+  total: number;
+  people: Array<{ seatId: SeatId; paid: number; consumed: number; balance: number }>;
+  plan: Transfer[];
+  pot: { seatId: SeatId; holderSeatId: SeatId; cash: number } | null;
 }
 
 export interface ShareReviewDTO {
@@ -164,6 +179,63 @@ export class SettlementUseCases {
       if (!actor.isAdmin) throw forbidden("Solo el organizador o un admin puede empezar a liquidar");
       if (trip.status === "active") throw invalidState("El viaje aún no está liquidando");
       await this.compute(tripId, trip);
+    });
+  }
+
+  /** The summary link's token, for any member to share; null until an admin creates one. */
+  getSummaryLink(principalId: PrincipalId, tripId: TripId): Promise<Result<string | null>> {
+    return attempt(async () => {
+      await this.context(principalId, tripId);
+      return this.deps.links.get(tripId);
+    });
+  }
+
+  /** Creates the link, or replaces it (the old one stops working). Admins only. */
+  createSummaryLink(principalId: PrincipalId, tripId: TripId): Promise<Result<string>> {
+    return attempt(async () => {
+      const { actor } = await this.context(principalId, tripId);
+      if (!actor.isAdmin) throw forbidden("Solo el organizador o un admin puede crear el resumen");
+      const token = randomToken();
+      await this.deps.links.set(tripId, token);
+      return token;
+    });
+  }
+
+  revokeSummaryLink(principalId: PrincipalId, tripId: TripId): Promise<Result<void>> {
+    return attempt(async () => {
+      const { actor } = await this.context(principalId, tripId);
+      if (!actor.isAdmin) throw forbidden("Solo el organizador o un admin puede desactivar el resumen");
+      await this.deps.links.set(tripId, null);
+    });
+  }
+
+  /** The read-only summary for whoever has the link (no sign-in). */
+  publicSummary(token: string): Promise<Result<PublicSummaryDTO>> {
+    return attempt(async () => {
+      const tripId = typeof token === "string" && token.length >= 24 ? await this.deps.links.tripOf(token) : null;
+      const trip = tripId ? await this.deps.membership.getTripView(tripId) : null;
+      if (!tripId || !trip) throw notFound("Este resumen ya no está disponible");
+      const { balances, transfers, potInfo } = await this.compute(tripId, trip);
+      const entries = await this.deps.ledger.entries(tripId);
+      const paid = new Map<SeatId, number>();
+      const consumed = new Map<SeatId, number>();
+      let total = 0;
+      for (const e of entries) {
+        for (const p of e.payers) paid.set(p.seatId, (paid.get(p.seatId) ?? 0) + e.sign * p.base);
+        for (const s of e.shares) consumed.set(s.seatId, (consumed.get(s.seatId) ?? 0) + e.sign * s.base);
+        total += e.sign * e.shares.reduce((a, s) => a + s.base, 0);
+      }
+      return {
+        tripId,
+        phase: trip.status,
+        baseCurrency: trip.baseCurrency,
+        total,
+        people: trip.seats
+          .filter((s) => s.id !== potInfo?.seatId)
+          .map((s) => ({ seatId: s.id, paid: paid.get(s.id) ?? 0, consumed: consumed.get(s.id) ?? 0, balance: balances.get(s.id) ?? 0 })),
+        plan: transfers.map(({ from, to, amount }) => ({ from, to, amount })),
+        pot: potInfo ? { seatId: potInfo.seatId, holderSeatId: potInfo.holderSeatId, cash: potInfo.cash } : null,
+      };
     });
   }
 

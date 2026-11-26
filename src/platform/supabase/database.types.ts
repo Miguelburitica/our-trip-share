@@ -333,6 +333,26 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"summary_links": {
+                  Row: {
+                    "created_at": string,"token": string,"trip_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"token": string,"trip_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"token"?: string,"trip_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "summary_links_trip_id_fkey"
+      columns: ["trip_id"]
+isOneToOne: true
+      referencedRelation: "trips"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"trips": {
                   Row: {
                     "base_currency": string,"created_at": string,"end_date": string | null,"hub_seat_id": string | null,"id": string,"join_token": string | null,"name": string,"settle_mode": Database["public"]['Enums']["settle_mode"],"start_date": string | null,"status": Database["public"]['Enums']["trip_status"],"version": number

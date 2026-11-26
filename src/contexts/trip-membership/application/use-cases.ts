@@ -311,6 +311,20 @@ export class TripMembershipUseCases {
     });
   }
 
+  /**
+   * The bits of a trip the read-only summary shows (the caller already checked the link): name,
+   * dates and people's names. Never links, tokens or who is signed in.
+   */
+  publicTripInfo(tripId: TripId): Promise<Result<{ name: string; startDate: string | null; endDate: string | null; names: Record<string, string> }>> {
+    return attempt(async () => {
+      const trip = await this.deps.trips.get(tripId);
+      if (!trip) throw notFound("No encontramos ese viaje");
+      const names: Record<string, string> = Object.fromEntries(trip.allSeats.map((s) => [s.id, s.displayName]));
+      if (trip.pot) names[trip.pot.id] = "La vaca";
+      return { name: trip.name, startDate: trip.startDate, endDate: trip.endDate, names };
+    });
+  }
+
   /** "¿Van a hacer vaca?" */
   createPot(principalId: PrincipalId, tripId: TripId, holderSeatId: SeatId): Promise<Result<void>> {
     return attempt(async () => {

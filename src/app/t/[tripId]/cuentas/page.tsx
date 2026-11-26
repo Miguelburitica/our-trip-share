@@ -3,6 +3,8 @@ import { fmt } from "@/app/ui/money";
 import { loadTrip } from "../data";
 import { CloseTrip, ReopenTrip, StartSettling } from "./lifecycle";
 import { PotSection } from "./pot-section";
+import { SummaryCard } from "./summary-card";
+import { requestOrigin } from "@/app/ui/origin";
 import { TransferRow } from "./transfer-sheet";
 
 const day = new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", timeZone: "America/Bogota" });
@@ -51,10 +53,12 @@ export default async function Cuentas({
   const active = b.phase === "active";
   const closed = b.phase === "closed";
   const people = trip.seats.filter((s) => !s.awaitingApproval).length;
-  const [reviews, expenses] = await Promise.all([
+  const [reviews, expenses, summary] = await Promise.all([
     b.phase === "settling" ? c.settlement.listShareReviews(principal, tripId) : null,
     b.phase === "settling" && canManage ? c.ledger.listTripExpenses(principal, tripId) : null,
+    c.settlement.getSummaryLink(principal, tripId),
   ]);
+  const summaryUrl = summary.ok && summary.value ? `${await requestOrigin()}/r/${summary.value}` : null;
   const questions = reviews?.ok ? reviews.value.questions : [];
   const reviewedOk = reviews?.ok ? reviews.value.ok : 0;
   const drafts = expenses?.ok ? expenses.value.filter((e) => e.status === "draft").length : 0;
@@ -215,6 +219,8 @@ export default async function Cuentas({
           <p className="px-1 text-[13px] text-muted">Respóndeles por el chat del viaje. Cuando les quede claro, marcan “Todo bien”.</p>
         </section>
       )}
+
+      <SummaryCard tripId={tripId} tripName={trip.name} url={summaryUrl} canManage={canManage} />
 
       {canManage && active && (
         <section aria-label="Liquidar" className="flex flex-col gap-3 pt-2">

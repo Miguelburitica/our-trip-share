@@ -344,6 +344,37 @@ describe("Foreign-currency expenses", () => {
   });
 });
 
+describe("Read-only summary link", () => {
+  it("shows totals and who pays whom to whoever has the link, until it's turned off", async () => {
+    const { c, tripId, seat } = await setup();
+    expect((await c.settlement.getSummaryLink(DEMO_PRINCIPAL, tripId)).ok && null).toBeNull();
+    const created = await c.settlement.createSummaryLink(DEMO_PRINCIPAL, tripId);
+    if (!created.ok) throw created.error;
+    expect(created.value.length).toBeGreaterThanOrEqual(24);
+
+    const summary = await c.settlement.publicSummary(created.value);
+    if (!summary.ok) throw summary.error;
+    expect(summary.value.total).toBe(4_332_000);
+    expect(summary.value.plan).toHaveLength(5);
+    expect(summary.value.people.find((p) => p.seatId === seat("Mateo"))).toMatchObject({ paid: 2_400_000, balance: 1_687_000 });
+    const info = await c.membership.publicTripInfo(summary.value.tripId);
+    expect(info.ok && info.value.name).toBe("Cartagena");
+
+    // A member can't create or turn it off; the admin can.
+    const invite = await c.membership.issueInvite(DEMO_PRINCIPAL, tripId, seat("Juli"));
+    if (!invite.ok) throw invite.error;
+    const juli = PrincipalId("guest-juli");
+    await c.membership.claimWithInvite(tripId, invite.value.token, { id: juli, kind: "guest" });
+    expect((await c.settlement.createSummaryLink(juli, tripId)).ok).toBe(false);
+    const seen = await c.settlement.getSummaryLink(juli, tripId);
+    expect(seen.ok && seen.value).toBe(created.value);
+    await c.settlement.revokeSummaryLink(DEMO_PRINCIPAL, tripId);
+    const gone = await c.settlement.publicSummary(created.value);
+    expect(!gone.ok && gone.error.code).toBe("not_found");
+    expect((await c.settlement.publicSummary("short")).ok).toBe(false);
+  });
+});
+
 describe("La vaca", () => {
   it("takes contributions, pays expenses and refunds the leftover through its holder", async () => {
     const { c, tripId, seat } = await setup();

@@ -89,3 +89,11 @@ export async function reviewShareAction(tripId: string, status: "ok" | "question
   const c = await getContainer();
   return done(tripId, await c.settlement.reviewMyShare(principal, TripId(tripId), { status: String(status), note: note ? String(note).slice(0, 400) : null }));
 }
+
+/** "Compartir resumen": creates (or replaces) the read-only link, or turns it off. */
+export async function summaryLinkAction(tripId: string, on: boolean): Promise<SettleResult> {
+  const { id: principal } = await requirePrincipal();
+  const c = await getContainer();
+  if (on) return done(tripId, await c.settlement.createSummaryLink(principal, TripId(tripId)));
+  return done(tripId, await c.settlement.revokeSummaryLink(principal, TripId(tripId)));
+}

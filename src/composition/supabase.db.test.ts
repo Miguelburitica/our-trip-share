@@ -206,6 +206,20 @@ describe.skipIf(!url || !secret)("Supabase repositories (local stack)", () => {
     expect(!removed.ok && removed.error.code).toBe("invalid_state");
   });
 
+  it("serves the read-only summary by token until it's turned off", async () => {
+    const link = await c.settlement.createSummaryLink(mateo.id, tripId);
+    if (!link.ok) throw link.error;
+    const s = await c.settlement.publicSummary(link.value);
+    expect(s.ok && s.value.tripId).toBe(tripId);
+    await c.settlement.revokeSummaryLink(mateo.id, tripId);
+    expect((await c.settlement.publicSummary(link.value)).ok).toBe(false);
+    if (publishable) {
+      const anon = createClient<Database>(url!, publishable, { auth: { persistSession: false } });
+      const direct = await anon.from("summary_links").select("token");
+      expect(direct.data ?? []).toHaveLength(0);
+    }
+  });
+
   it("freezes the plan once and stores \"Revisa tu parte\" answers", async () => {
     expect((await c.membership.startSettling(mateo.id, tripId)).ok).toBe(true);
     expect((await c.settlement.freezePlan(mateo.id, tripId)).ok).toBe(true);

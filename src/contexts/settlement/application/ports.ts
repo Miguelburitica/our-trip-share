@@ -63,3 +63,10 @@ export interface ShareReviewRepository {
   list(tripId: TripId): Promise<ShareReview[]>;
   set(review: ShareReview): Promise<void>;
 }
+
+/** The trip's read-only summary link ("Compartir resumen"). Server-only. */
+export interface SummaryLinkRepository {
+  get(tripId: TripId): Promise<string | null>;
+  tripOf(token: string): Promise<TripId | null>;
+  set(tripId: TripId, token: string | null): Promise<void>;
+}
