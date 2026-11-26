@@ -450,6 +450,81 @@ describe("La vaca while Liquidando", () => {
   });
 });
 
+describe("R14 approvals while Liquidando", () => {
+  it("holds a member's change that reopens a settled balance until an admin approves it", async () => {
+    const { c, tripId, seat } = await setup();
+    const invite = await c.membership.issueInvite(DEMO_PRINCIPAL, tripId, seat("Juli"));
+    if (!invite.ok) throw invite.error;
+    const juli = PrincipalId("guest-juli");
+    await c.membership.claimWithInvite(tripId, invite.value.token, { id: juli, kind: "guest" });
+    // Leo already settled with Mateo (Mateo recorded it: confirmed).
+    await c.settlement.recordSettlement(DEMO_PRINCIPAL, tripId, { from: seat("Leo"), to: seat("Mateo"), amount: 653_000, method: "cash" });
+    await c.membership.startSettling(DEMO_PRINCIPAL, tripId);
+    const before = await c.settlement.getTripBalances(DEMO_PRINCIPAL, tripId);
+
+    // Juli adds a taxi shared with Leo: it would move Leo's settled balance, so it waits.
+    const taxi = await c.ledger.recordExpense(juli, tripId, {
+      currency: "COP",
+      amount: 40_000,
+      title: "Taxi",
+      split: { method: "equal", participants: [seat("Juli"), seat("Leo")] },
+    });
+    if (!taxi.ok) throw taxi.error;
+    expect(taxi.value.expense.held).toBe(true);
+    const unchanged = await c.settlement.getTripBalances(DEMO_PRINCIPAL, tripId);
+    expect(unchanged.ok && before.ok && unchanged.value.balances).toEqual(before.ok ? before.value.balances : []);
+
+    // A change that touches nobody settled goes straight through.
+    const solo = await c.ledger.recordExpense(juli, tripId, { currency: "COP", amount: 10_000, split: { method: "equal", participants: [seat("Juli")] } });
+    expect(solo.ok && solo.value.expense.held).toBe(false);
+
+    const mine = await c.ledger.listHeldChanges(juli, tripId);
+    expect(mine.ok && mine.value).toMatchObject([{ kind: "created", title: "Taxi", amount: 40_000, by: seat("Juli") }]);
+    const closing = await c.membership.closeTrip(DEMO_PRINCIPAL, tripId);
+    expect(!closing.ok && closing.error.details).toMatchObject({ pendingApprovals: 1 });
+
+    const id = mine.ok ? mine.value[0].id : "";
+    expect((await c.ledger.approveHeldChange(juli, tripId, id)).ok).toBe(false);
+    expect((await c.ledger.approveHeldChange(DEMO_PRINCIPAL, tripId, id)).ok).toBe(true);
+    const after = await c.settlement.getTripBalances(DEMO_PRINCIPAL, tripId);
+    if (!after.ok || !before.ok) throw new Error("balances");
+    const leo = (b: typeof after.value) => b.balances.find((x) => x.seatId === seat("Leo"))!.balance;
+    expect(leo(after.value) - leo(before.value)).toBe(-20_000);
+    // Leo hears about it, attributed to Juli.
+    const notices = await c.settlement.listMyNotices(DEMO_PRINCIPAL, tripId);
+    expect(notices.ok && notices.value).toEqual([]);
+    expect((await c.ledger.listHeldChanges(DEMO_PRINCIPAL, tripId)).ok).toBe(true);
+  });
+
+  it("drops a held edit when the expense changed in the meantime, and lets its author withdraw", async () => {
+    const { c, tripId, seat } = await setup();
+    const invite = await c.membership.issueInvite(DEMO_PRINCIPAL, tripId, seat("Juli"));
+    if (!invite.ok) throw invite.error;
+    const juli = PrincipalId("guest-juli");
+    await c.membership.claimWithInvite(tripId, invite.value.token, { id: juli, kind: "guest" });
+    await c.settlement.recordSettlement(DEMO_PRINCIPAL, tripId, { from: seat("Leo"), to: seat("Mateo"), amount: 653_000, method: "cash" });
+    await c.membership.startSettling(DEMO_PRINCIPAL, tripId);
+    const list = await c.ledger.listTripExpenses(DEMO_PRINCIPAL, tripId);
+    const taxi = list.ok ? list.value.find((e) => e.title === "Taxi aeropuerto")! : (null as never);
+
+    const held = await c.ledger.editExpenseMoney(juli, tripId, taxi.id, taxi.moneyVersion, { currency: "COP", amount: 100_000 });
+    expect(held.ok && held.value.held).toBe(true);
+    // Mateo (admin) edits it directly first.
+    await c.ledger.editExpenseMoney(DEMO_PRINCIPAL, tripId, taxi.id, taxi.moneyVersion, { currency: "COP", amount: 88_000 });
+    const pending = await c.ledger.listHeldChanges(DEMO_PRINCIPAL, tripId);
+    const id = pending.ok ? pending.value[0].id : "";
+    const stale = await c.ledger.approveHeldChange(DEMO_PRINCIPAL, tripId, id);
+    expect(!stale.ok && stale.error.code).toBe("conflict");
+    expect((await c.ledger.listHeldChanges(DEMO_PRINCIPAL, tripId)).ok && (await c.ledger.heldCount(tripId))).toBe(0);
+
+    const del = await c.ledger.deleteExpense(juli, tripId, taxi.id);
+    expect(del.ok && del.value.held).toBe(true);
+    const again = await c.ledger.listHeldChanges(juli, tripId);
+    expect((await c.ledger.rejectHeldChange(juli, tripId, again.ok ? again.value[0].id : "")).ok).toBe(true);
+    expect(await c.ledger.heldCount(tripId)).toBe(0);
+  });
+});
+
 describe("Liquidando and Cerrado", () => {
   const joinJuli = async (c: Awaited<ReturnType<typeof setup>>["c"], tripId: Awaited<ReturnType<typeof setup>>["tripId"], juliSeat: SeatId) => {
     const invite = await c.membership.issueInvite(DEMO_PRINCIPAL, tripId, juliSeat);

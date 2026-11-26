@@ -4,6 +4,8 @@ import { loadTrip } from "../data";
 import { CloseTrip, ReopenTrip, StartSettling } from "./lifecycle";
 import { PotSection } from "./pot-section";
 import { SummaryCard } from "./summary-card";
+import { HeldChanges } from "../held-changes";
+import { heldItems } from "../held";
 import { requestOrigin } from "@/app/ui/origin";
 import { TransferRow } from "./transfer-sheet";
 
@@ -58,6 +60,8 @@ export default async function Cuentas({
     b.phase === "settling" && canManage ? c.ledger.listTripExpenses(principal, tripId) : null,
     c.settlement.getSummaryLink(principal, tripId),
   ]);
+  const held = b.phase === "settling" ? await c.ledger.listHeldChanges(principal, tripId) : null;
+  const heldList = held?.ok ? heldItems(held.value, b.mySeatId, nameOf) : [];
   const summaryUrl = summary.ok && summary.value ? `${await requestOrigin()}/r/${summary.value}` : null;
   const questions = reviews?.ok ? reviews.value.questions : [];
   const reviewedOk = reviews?.ok ? reviews.value.ok : 0;
@@ -66,6 +70,7 @@ export default async function Cuentas({
   const blockers = [
     drafts > 0 && (drafts === 1 ? "1 recibo sin monto" : `${drafts} recibos sin monto`),
     b.pending.length > 0 && (b.pending.length === 1 ? "1 pago por confirmar" : `${b.pending.length} pagos por confirmar`),
+    canManage && heldList.length > 0 && (heldList.length === 1 ? "1 cambio por aprobar" : `${heldList.length} cambios por aprobar`),
   ].filter((x): x is string => Boolean(x));
   const warnings = [
     b.plan.length > 0 && (b.plan.length === 1 ? "Aún falta 1 pago del plan." : `Aún faltan ${b.plan.length} pagos del plan.`),
@@ -204,6 +209,8 @@ export default async function Cuentas({
             </div>
           ))}
       </section>
+
+      <HeldChanges tripId={tripId} items={heldList} canDecide={canManage} />
 
       {canManage && questions.length > 0 && (
         <section aria-label="Preguntas" className="flex flex-col gap-2.5">

@@ -4,6 +4,8 @@ import { expenseTitle, fmt } from "@/app/ui/money";
 import { ExpenseId } from "@/shared-kernel/ids";
 import { loadTrip } from "../../data";
 import { DeleteExpenseButton } from "./delete-button";
+import { HeldChanges } from "../../held-changes";
+import { heldItems } from "../../held";
 import { RateEditor } from "./rate-editor";
 import { SplitEditor } from "./split-editor";
 
@@ -30,6 +32,10 @@ export default async function DetalleGasto({ params }: { params: Promise<{ tripI
   const initials = (id: string) => (trip.seats.find((s) => s.id === id)?.displayName ?? "?").slice(0, 1);
   const people = trip.seats.filter((s) => s.status === "active" && !s.awaitingApproval).map((s) => ({ id: s.id as string, name: s.id === trip.mySeatId ? "Tú" : s.displayName }));
   const closed = trip.status === "closed";
+  const me = trip.seats.find((s) => s.id === trip.mySeatId);
+  const canDecide = me?.role === "owner" || me?.role === "admin";
+  const heldAll = trip.status === "settling" ? await c.ledger.listHeldChanges(principal, tripId) : null;
+  const heldHere = heldAll?.ok ? heldItems(heldAll.value.filter((h) => h.expenseId === e.id), trip.mySeatId, nameOf) : [];
   const editable = !closed && e.status === "complete" && e.amount !== null && !e.ratePending;
   const foreign = e.status === "complete" && cur !== trip.baseCurrency;
   // "1 USD = $3.572,87" with the rate's own decimals, in the trip's currency format.
@@ -63,6 +69,8 @@ export default async function DetalleGasto({ params }: { params: Promise<{ tripI
           )}
         </span>
       </section>
+
+      <HeldChanges tripId={tripId} items={heldHere} canDecide={canDecide} title="Cambio esperando aprobación" />
 
       {foreign && (
         <section aria-label="Moneda" className="flex flex-col gap-2 rounded-3xl bg-tint px-4.5 py-4">

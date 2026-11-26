@@ -10,7 +10,7 @@ import { requestOrigin } from "@/app/ui/origin";
 import { ExpenseId, NoticeId, SeatId, SplitGroupId, TripId } from "@/shared-kernel/ids";
 
 export type ActionResult =
-  | { ok: true; warnings: string[] }
+  | { ok: true; warnings: string[]; held?: boolean }
   | { ok: false; message: string };
 
 
@@ -60,7 +60,7 @@ export async function recordExpenseAction(input: {
   });
   if (!result.ok) return { ok: false, message: result.error.message || COPY[result.error.code] };
   revalidatePath(`/t/${input.tripId}`, "layout");
-  return { ok: true, warnings: result.value.warnings.map((w) => WARNING_COPY[w.code]) };
+  return { ok: true, held: result.value.expense.held === true, warnings: result.value.warnings.map((w) => WARNING_COPY[w.code]) };
 }
 
 /**
@@ -74,7 +74,7 @@ export async function editSplitAction(input: {
   expectedVersion: number;
   amount: number;
   split: { method: "equal"; participants: string[] } | { method: "exact"; shares: Array<{ seatId: string; amount: number }> };
-}): Promise<{ ok: true } | { ok: false; message: string }> {
+}): Promise<{ ok: true; held?: boolean } | { ok: false; message: string }> {
   const { id: principal } = await requirePrincipal();
   const c = await getContainer();
   const tripId = TripId(input.tripId);
@@ -99,7 +99,7 @@ export async function editSplitAction(input: {
     return { ok: false, message: r.error.message || COPY[r.error.code] };
   }
   revalidatePath(`/t/${input.tripId}`, "layout");
-  return { ok: true };
+  return { ok: true, held: r.value.held === true };
 }
 
 /** "Borrar gasto": soft delete (it leaves everyone's balances, history keeps it), then back to Gastos. */
@@ -109,7 +109,7 @@ export async function deleteExpenseAction(tripId: string, expenseId: string): Pr
   const r = await c.ledger.deleteExpense(principal, TripId(tripId), ExpenseId(String(expenseId)));
   if (!r.ok) return { ok: false, message: r.error.message || COPY[r.error.code] };
   revalidatePath(`/t/${tripId}`, "layout");
-  redirect(`/t/${tripId}/gastos?borrado=1`);
+  redirect(r.value.held ? `/t/${tripId}/gastos/${expenseId}?pendiente=1` : `/t/${tripId}/gastos?borrado=1`);
 }
 
 /** Quick add's "≈" preview for a foreign currency. */
@@ -293,5 +293,17 @@ export async function removePotAction(tripId: string): Promise<{ ok: true } | { 
   const r = await c.membership.removePot(principal, TripId(tripId));
   if (!r.ok) return { ok: false, message: r.error.message || COPY[r.error.code] };
   revalidatePath(`/t/${tripId}`, "layout");
+  return { ok: true };
+}
+
+/** R14: an admin approves or turns down a change that waited; its author can withdraw it. */
+export async function decideHeldChangeAction(tripId: string, id: string, approve: boolean): Promise<{ ok: true } | { ok: false; message: string }> {
+  const { id: principal } = await requirePrincipal();
+  const c = await getContainer();
+  const r = approve
+    ? await c.ledger.approveHeldChange(principal, TripId(tripId), String(id))
+    : await c.ledger.rejectHeldChange(principal, TripId(tripId), String(id));
+  revalidatePath(`/t/${tripId}`, "layout");
+  if (!r.ok) return { ok: false, message: r.error.message || COPY[r.error.code] };
   return { ok: true };
 }

@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SupabaseExpenseRepository } from "@/contexts/expense-ledger/infrastructure/supabase-expense-repository";
+import { SupabaseHeldChangeRepository } from "@/contexts/expense-ledger/infrastructure/supabase-held-change-repository";
 import type { Database } from "@/platform/supabase/database.types";
 import type { Db } from "@/platform/supabase/db";
 import { PrincipalId, type ExpenseId, type SeatId, type TripId } from "@/shared-kernel/ids";
@@ -204,6 +205,21 @@ describe.skipIf(!url || !secret)("Supabase repositories (local stack)", () => {
     expect((await c.membership.changePotHolder(mateo.id, tripId, trip.value.mySeatId)).ok).toBe(true);
     const removed = await c.membership.removePot(mateo.id, tripId);
     expect(!removed.ok && removed.error.code).toBe("invalid_state");
+  });
+
+  it("stores a held change with its proposed expense intact (R14)", async () => {
+    const recorded = await c.ledger.recordExpense(mateo.id, tripId, { currency: "COP", amount: 33_000, title: "Arepas" });
+    if (!recorded.ok) throw recorded.error;
+    const expense = await new SupabaseExpenseRepository(db).get(recorded.value.expense.id as ExpenseId);
+    const repo = new SupabaseHeldChangeRepository(db);
+    const id = crypto.randomUUID();
+    await repo.add({ id, tripId, expenseId: expense!.id, kind: "edited", proposed: expense!.toPrimitives(), baseVersion: 1, by: seats.get("Mateo")!, at: new Date() });
+    const back = await repo.get(tripId, id);
+    expect(back?.proposed).toEqual(expense!.toPrimitives());
+    expect(back?.proposed.occurredAt).toBeInstanceOf(Date);
+    expect(await repo.list(tripId)).toHaveLength(1);
+    await repo.delete(tripId, id);
+    expect(await repo.list(tripId)).toHaveLength(0);
   });
 
   it("serves the read-only summary by token until it's turned off", async () => {

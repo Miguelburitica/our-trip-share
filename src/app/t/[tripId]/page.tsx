@@ -9,11 +9,12 @@ const PHASE = { active: "", settling: "Liquidando", closed: "Cerrado" } as const
 export default async function Inicio({ params }: { params: Promise<{ tripId: string }> }) {
   const { tripId: raw } = await params;
   const { c, principal, tripId, trip, nameOf } = await loadTrip(raw);
-  const [balances, expenses, notices, review] = await Promise.all([
+  const [balances, expenses, notices, review, held] = await Promise.all([
     c.settlement.getTripBalances(principal, tripId),
     c.ledger.listTripExpenses(principal, tripId),
     c.settlement.listMyNotices(principal, tripId),
     trip.status === "settling" ? c.settlement.getMyShareReview(principal, tripId) : null,
+    trip.status === "settling" ? c.ledger.listHeldChanges(principal, tripId) : null,
   ]);
   if (!balances.ok || !expenses.ok || !notices.ok) throw new Error("No pudimos cargar el viaje");
   const b = balances.value;
@@ -28,6 +29,8 @@ export default async function Inicio({ params }: { params: Promise<{ tripId: str
   const joinRequests = trip.seats.filter(
     (s) => s.pendingClaim && (me?.role === "owner" || me?.role === "admin" || s.createdBy === trip.mySeatId),
   ).length;
+  // Admins see every change waiting for approval; others only their own.
+  const heldCount = held?.ok ? held.value.length : 0;
   const lastDay = expenses.value[0] ? dayKey(expenses.value[0].occurredAt) : null;
   const latest = expenses.value.filter((e) => e.status === "complete" && dayKey(e.occurredAt) === lastDay).slice(0, 3);
   const base = `/t/${tripId}`;
@@ -92,7 +95,7 @@ export default async function Inicio({ params }: { params: Promise<{ tripId: str
         </div>
       </section>
 
-      {(pendingForMe.length > 0 || drafts.length > 0 || notices.value.length > 0 || joinRequests > 0) && (
+      {(pendingForMe.length > 0 || drafts.length > 0 || notices.value.length > 0 || joinRequests > 0 || heldCount > 0) && (
         <section aria-label="Para ti" className="flex flex-col gap-3">
           <h2 className="px-1 text-[15px] font-semibold">Para ti</h2>
           {joinRequests > 0 && (
@@ -102,6 +105,17 @@ export default async function Inicio({ params }: { params: Promise<{ tripId: str
                   {joinRequests === 1 ? "Alguien quiere entrar al viaje" : `${joinRequests} personas quieren entrar`}
                 </span>
                 <span className="text-sm text-muted">Apruébalos en Viaje</span>
+              </span>
+              <Chevron />
+            </Link>
+          )}
+          {heldCount > 0 && (
+            <Link href={`${base}/cuentas`} className="flex items-center gap-3.5 rounded-[22px] bg-surface px-4.5 py-4 shadow-card">
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="text-[15px] font-semibold">
+                  {heldCount === 1 ? "1 cambio espera aprobación" : `${heldCount} cambios esperan aprobación`}
+                </span>
+                <span className="text-sm text-muted">{me?.role === "owner" || me?.role === "admin" ? "Apruébalos en Cuentas" : "Lo revisa un admin"}</span>
               </span>
               <Chevron />
             </Link>

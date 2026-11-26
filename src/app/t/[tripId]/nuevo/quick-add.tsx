@@ -93,7 +93,7 @@ export function QuickAdd(props: {
   const [receipt, setReceipt] = useState<{ path: string; title: string | null; note: string | null } | null>(null);
   const [scanning, setScanning] = useState(false);
   const photoInput = useRef<HTMLInputElement>(null);
-  const [status, setStatus] = useState<null | { kind: "saved"; warnings: string[] } | { kind: "error"; message: string }>(null);
+  const [status, setStatus] = useState<null | { kind: "saved"; warnings: string[]; held?: boolean } | { kind: "error"; message: string }>(null);
   const [pending, startTransition] = useTransition();
 
   const foreign = cur !== props.currency;
@@ -227,7 +227,7 @@ export function QuickAdd(props: {
         receiptPath: receipt?.path ?? null,
       });
       if (result.ok) {
-        setStatus({ kind: "saved", warnings: result.warnings });
+        setStatus({ kind: "saved", warnings: result.warnings, held: result.held });
         setDigits("");
         setReceipt(null);
         setCardCharge(null);
@@ -301,6 +301,11 @@ export function QuickAdd(props: {
             >
               {cardCharge === null ? "¿Cuánto cobró la tarjeta?" : "Usar la tasa del día"}
             </button>
+          </span>
+        )}
+        {status?.kind === "saved" && status.held && (
+          <span className="max-w-[300px] text-center text-[13px] font-medium text-accent-text">
+            Cambia el saldo de alguien que ya pagó, así que cuenta cuando un admin lo apruebe.
           </span>
         )}
         {status?.kind === "saved" && status.warnings.length > 0 && (
@@ -476,7 +481,7 @@ export function QuickAdd(props: {
 
       {status?.kind === "saved" ? (
         <div role="status" className="flex min-h-14 items-center justify-between gap-2.5 rounded-full bg-ink py-1.5 pr-1.5 pl-5.5 text-bg">
-          <span className="text-[15px] font-medium">Guardado</span>
+          <span className="text-[15px] font-medium">{status.held ? "Falta que lo apruebe un admin" : "Guardado"}</span>
           <Link href={`/t/${props.tripId}/gastos`} className="flex min-h-11 items-center rounded-full bg-ink-2 px-4.5 text-sm font-semibold">
             Ver gastos
           </Link>

@@ -81,3 +81,14 @@ Quick add SHALL let a member attach a photo of the receipt ("Foto de la factura"
 #### Scenario: Photo from another trip
 - **WHEN** an expense is submitted with a receipt path stored under a different trip
 - **THEN** it is rejected with a validation error
+
+### Requirement: Changes that reopen settled balances wait while Liquidando (R14)
+While a trip is Liquidando, a money change (new, edited or deleted expense) by a member who is not an owner or admin, that would move the balance of someone with a confirmed payment, SHALL NOT count until an owner or admin approves it. An approval SHALL apply the change only if the expense's money version hasn't moved since; otherwise the change is dropped. The author MAY withdraw it. Changes waiting for approval SHALL block closing the trip.
+
+#### Scenario: Juli adds a taxi with Leo, who already paid
+- **WHEN** the trip is Liquidando, Leo has a confirmed payment, and Juli (member) adds a 40.000 taxi split with Leo
+- **THEN** balances don't change, Mateo sees "Juli agregó Taxi · $40.000" to approve, and after he approves Leo's balance moves by −20.000
+
+#### Scenario: The expense changed in the meantime
+- **WHEN** Juli's edit is waiting and an admin edits the same expense first
+- **THEN** approving Juli's edit fails and it is dropped
