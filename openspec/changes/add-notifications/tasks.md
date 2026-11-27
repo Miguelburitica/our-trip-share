@@ -6,5 +6,6 @@
 - [x] 1.4 Composition: ledger changes → notices after the response (`ledgerListeners`, `defer`), directory and digest adapters; hooks in record/confirm/start/review/join/held actions
 - [x] 1.5 UI: "Avisos en este teléfono" in Viaje (states: off, on, blocked, install first on iPhone, unsupported), service worker push and click handlers, unsubscribe on sign-out
 - [x] 1.6 Evening digest route `/api/cron/digest` with Vercel Cron at 01:00 UTC; verify with Vitest
-- [ ] 1.7 Verify a real push on a phone (needs the VAPID keys in Vercel)
+- [x] 1.7 Verify a real push on a phone: the evening digest reached the owner's phone in production
 - [ ] 1.8 Email channel (needs an email provider, e.g. Resend)
+- [x] 1.9 Daily summary image: `/t/[tripId]/resumen-del-dia?dia=` renders a 1080×1350 PNG (`ImageResponse`, Figtree) with the day's total, top 3 expenses and each person's balance (`daySummary`, tested); "Compartir" on each day in Gastos and on "Lo último" uses the phone's share sheet or downloads; members only, never cached

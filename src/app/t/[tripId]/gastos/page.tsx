@@ -3,6 +3,7 @@ import Link from "next/link";
 import { PendingExpenses } from "@/app/offline/pending-list";
 import { dayKey, dayLabel, expenseTitle, fmt } from "@/app/ui/money";
 import { loadTrip } from "../data";
+import { ShareDay } from "../resumen-del-dia/share-day";
 
 export default async function Gastos({
   params,
@@ -65,7 +66,10 @@ export default async function Gastos({
 
       {[...groups.entries()].map(([day, items]) => (
         <section key={day} className="flex flex-col gap-2.5">
-          <h2 className="px-1 text-sm font-semibold text-muted">{dayLabel(items[0].occurredAt)}</h2>
+          <div className="flex items-center justify-between px-1">
+            <h2 className="text-sm font-semibold text-muted">{dayLabel(items[0].occurredAt)}</h2>
+            <ShareDay tripId={tripId} day={day} tripName={trip.name} />
+          </div>
           <ul className="rounded-[22px] bg-surface px-4.5 py-1 shadow-card">
             {items.map((e) => (
               <li key={e.id} className="relative flex min-h-[62px] items-center justify-between gap-3">

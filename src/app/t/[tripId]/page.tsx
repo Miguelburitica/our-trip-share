@@ -5,6 +5,7 @@ import { dayKey, expenseTitle, fmt } from "@/app/ui/money";
 import type { NoticeDTO } from "@/contexts/settlement/application/use-cases";
 import { dismissNoticeAction } from "./actions";
 import { loadTrip } from "./data";
+import { ShareDay } from "./resumen-del-dia/share-day";
 import { ReviewCard } from "./review-card";
 
 const PHASE = { active: "", settling: "Liquidando", closed: "Cerrado" } as const;
@@ -177,7 +178,10 @@ export default async function Inicio({ params }: { params: Promise<{ tripId: str
 
       {latest.length > 0 && (
         <section aria-label="Lo último" className="flex flex-col gap-3">
-          <h2 className="px-1 text-[15px] font-semibold">Lo último</h2>
+          <div className="flex items-center justify-between px-1">
+            <h2 className="text-[15px] font-semibold">Lo último</h2>
+            {lastDay && <ShareDay tripId={tripId} day={lastDay} tripName={trip.name} />}
+          </div>
           <div className="flex flex-col rounded-[22px] bg-surface px-4.5 py-1.5 shadow-card">
             {latest.map((e) => (
               <div key={e.id} className="flex min-h-[60px] items-center justify-between gap-3">

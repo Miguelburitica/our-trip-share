@@ -8,6 +8,10 @@ const nextConfig: NextConfig = {
     // Receipt photos are downscaled on the phone, but leave room for a 4MB original plus multipart overhead.
     serverActions: { bodySizeLimit: "5mb" },
   },
+  // The daily summary image reads its fonts and logo from disk at runtime.
+  outputFileTracingIncludes: {
+    "/t/[tripId]/resumen-del-dia": ["./assets/fonts/*.woff", "./src/app/icon.svg"],
+  },
   async headers() {
     return [
       {
