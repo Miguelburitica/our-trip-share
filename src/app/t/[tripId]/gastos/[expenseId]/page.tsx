@@ -54,7 +54,7 @@ export default async function DetalleGasto({ params }: { params: Promise<{ tripI
       </header>
 
       <section className="flex flex-col gap-1.5 px-1">
-        <span className="text-sm font-semibold text-muted">{CATEGORY[e.category]}</span>
+        {expenseTitle(e) !== CATEGORY[e.category] && <span className="text-sm font-semibold text-muted">{CATEGORY[e.category]}</span>}
         <h1 className="text-[26px] leading-tight font-bold tracking-tight">{expenseTitle(e)}</h1>
         <span className="tabular text-[44px] leading-tight font-bold tracking-tight">{e.amount !== null ? fmt(e.amount, cur) : "Sin monto"}</span>
         <span className="text-sm text-muted">

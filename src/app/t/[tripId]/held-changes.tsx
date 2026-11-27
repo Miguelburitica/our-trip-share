@@ -33,7 +33,11 @@ export function HeldChanges(props: { tripId: string; items: HeldItem[]; canDecid
     <section aria-label="Cambios por aprobar" className="flex flex-col gap-2.5">
       <div className="flex flex-col px-1">
         <h2 className="text-[15px] font-semibold">{props.title ?? "Cambios por aprobar"}</h2>
-        <p className="text-[13px] text-muted">Cambian el saldo de alguien que ya pagó, así que no cuentan hasta que un admin los apruebe.</p>
+        <p className="text-[13px] text-muted">
+          {props.items.length === 1
+            ? "Cambia el saldo de alguien que ya pagó, así que no cuenta hasta que un admin lo apruebe."
+            : "Cambian el saldo de alguien que ya pagó, así que no cuentan hasta que un admin los apruebe."}
+        </p>
       </div>
       <ul className="flex flex-col gap-2">
         {props.items.map((h) => (

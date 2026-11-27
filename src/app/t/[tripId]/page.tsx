@@ -104,7 +104,7 @@ export default async function Inicio({ params }: { params: Promise<{ tripId: str
                 <span className="text-[15px] font-semibold">
                   {joinRequests === 1 ? "Alguien quiere entrar al viaje" : `${joinRequests} personas quieren entrar`}
                 </span>
-                <span className="text-sm text-muted">Apruébalos en Viaje</span>
+                <span className="text-sm text-muted">{joinRequests === 1 ? "Apruébalo en Viaje" : "Apruébalos en Viaje"}</span>
               </span>
               <Chevron />
             </Link>
@@ -115,7 +115,9 @@ export default async function Inicio({ params }: { params: Promise<{ tripId: str
                 <span className="text-[15px] font-semibold">
                   {heldCount === 1 ? "1 cambio espera aprobación" : `${heldCount} cambios esperan aprobación`}
                 </span>
-                <span className="text-sm text-muted">{me?.role === "owner" || me?.role === "admin" ? "Apruébalos en Cuentas" : "Lo revisa un admin"}</span>
+                <span className="text-sm text-muted">{me?.role === "owner" || me?.role === "admin"
+                    ? heldCount === 1 ? "Apruébalo en Cuentas" : "Apruébalos en Cuentas"
+                    : "Lo revisa un admin"}</span>
               </span>
               <Chevron />
             </Link>

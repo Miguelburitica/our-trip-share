@@ -51,7 +51,15 @@ describe.skipIf(!url || !secret)("Supabase repositories (local stack)", () => {
   });
 
   afterAll(async () => {
-    if (tripId) await db.from("trips").delete().eq("id", tripId);
+    if (tripId) {
+      // Money rows point at seats without cascading, so they go before the trip takes its seats with it.
+      for (const table of ["expenses", "settlements", "split_groups"] as const) {
+        const { error } = await db.from(table).delete().eq("trip_id", tripId);
+        if (error) throw error;
+      }
+      const { error } = await db.from("trips").delete().eq("id", tripId);
+      if (error) throw error;
+    }
     for (const id of users) await db.auth.admin.deleteUser(id);
   });
 
