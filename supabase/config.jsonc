@@ -495,4 +495,22 @@
       // "format_options": "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":180,\"commaStyle\":\"trailing\"}",
     }
   }
+  ,
+  // Production (supabase.com project "our-share"). Only what differs from local dev: the public URL,
+  // a sane email rate and the hosted defaults we don't manage locally. Push with
+  // `npx supabase config push --remote=qkichxxvfmltxwvhgwrt`.
+  "remotes": {
+    "production": {
+      "project_id": "qkichxxvfmltxwvhgwrt",
+      "auth": {
+        "site_url": "https://our-trip-share.vercel.app",
+        "additional_redirect_urls": ["https://our-trip-share.vercel.app/**"],
+        "email": { "max_frequency": "1m0s" },
+        "mfa": { "totp": { "enroll_enabled": true, "verify_enabled": true } },
+        "sms": { "enable_confirmations": true }
+      },
+      "db": { "pooler": { "default_pool_size": 15, "max_client_conn": 200 } },
+      "storage": { "vector": { "enabled": false } }
+    }
+  }
 }
