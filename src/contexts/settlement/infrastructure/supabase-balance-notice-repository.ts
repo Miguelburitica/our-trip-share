@@ -8,6 +8,8 @@ const toNotice = (r: Row<"balance_notices">) =>
     id: r.id as NoticeId,
     tripId: r.trip_id as TripId,
     seatId: r.seat_id as SeatId,
+    reason: r.reason as BalanceNoticeProps["reason"],
+    paid: r.paid_before !== null && r.paid_after !== null ? { before: r.paid_before, after: r.paid_after } : null,
     delta: r.delta,
     cause: {
       kind: r.cause_kind as BalanceNoticeProps["cause"]["kind"],
@@ -26,6 +28,9 @@ const toRow = (n: BalanceNotice) => {
     id: p.id,
     trip_id: p.tripId,
     seat_id: p.seatId,
+    reason: p.reason,
+    paid_before: p.paid?.before ?? null,
+    paid_after: p.paid?.after ?? null,
     delta: p.delta,
     expense_id: p.cause.expenseId,
     cause_kind: p.cause.kind,

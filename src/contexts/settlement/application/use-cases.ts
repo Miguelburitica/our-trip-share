@@ -5,7 +5,7 @@ import { CURRENCIES } from "@/shared-kernel/money/currency";
 import { isWithinDust } from "@/shared-kernel/money/money";
 import { randomToken } from "@/shared-kernel/random-token";
 import { attempt, type Result } from "@/shared-kernel/result";
-import { detectReopened, type ChangeCause, type LedgerChange } from "../domain/balance-notice";
+import { detectNotices, detectReopened, type ChangeCause, type LedgerChange, type NoticeReason } from "../domain/balance-notice";
 import { computeBalances, ledgerBalances, overpaymentCredit } from "../domain/balances";
 import type { Transfer } from "../domain/ledger-entry";
 import { buildSettlingPlan, mergeSettlingPlan, planDirect, planHub, planSimplified } from "../domain/plan";
@@ -86,6 +86,8 @@ export interface ShareReviewDTO {
 
 export interface NoticeDTO {
   id: NoticeId;
+  reason: NoticeReason;
+  paid: { before: number; after: number } | null;
   delta: number;
   cause: ChangeCause;
   by: SeatId;
@@ -404,12 +406,14 @@ export class SettlementUseCases {
 
   /**
    * Called after the ledger saved a money change (the ledger already checked permissions). Records a
-   * "Tu saldo cambió" notice for each settled seat the change moved. Returns how many were created.
+   * notice for each seat whose payment someone else touched, and "Tu saldo cambió" for each settled
+   * seat the change moved. Returns how many were created.
    */
   recordLedgerChange(change: LedgerChange): Promise<Result<number>> {
     return attempt(async () => {
       const settlements = (await this.deps.settlements.listByTrip(change.tripId)).map((s) => s.toPrimitives());
-      const notices = detectReopened(change, settlements, () => NoticeId(this.deps.ids.next()));
+      const pot = (await this.deps.membership.getTripView(change.tripId))?.pot?.seatId;
+      const notices = detectNotices(change, settlements, () => NoticeId(this.deps.ids.next()), new Set(pot ? [pot] : []));
       if (notices.length) await this.deps.notices.add(notices);
       return notices.length;
     });
@@ -429,7 +433,7 @@ export class SettlementUseCases {
       const open = await this.deps.notices.listOpen(tripId, actor.seatId);
       return open.map((n) => {
         const p = n.toPrimitives();
-        return { id: p.id, delta: p.delta, cause: p.cause, by: p.by, at: p.createdAt.toISOString() };
+        return { id: p.id, reason: p.reason, paid: p.paid, delta: p.delta, cause: p.cause, by: p.by, at: p.createdAt.toISOString() };
       });
     });
   }

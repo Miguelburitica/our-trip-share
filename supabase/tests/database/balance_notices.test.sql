@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(8);
+select plan(9);
 
 insert into auth.users (id, aud, role, email) values
   ('00000000-0000-0000-0000-0000000000a1', 'authenticated', 'authenticated', 'mateo@test.local'),
@@ -26,6 +26,12 @@ values ('00000000-0000-0000-0000-00000000ab01', '00000000-0000-0000-0000-0000000
 
 insert into public.share_reviews (seat_id, trip_id, status, note)
 values ('00000000-0000-0000-0000-00000000ab02', '00000000-0000-0000-0000-00000000aa01', 'question', '¿La lancha era para todos?');
+
+select throws_ok($$
+  insert into public.balance_notices (id, trip_id, seat_id, delta, cause_kind, cause_title, cause_category, by_seat, reason)
+  values (gen_random_uuid(), '00000000-0000-0000-0000-00000000aa01', '00000000-0000-0000-0000-00000000ab02',
+          9000, 'created', 'Peaje', 'transporte', '00000000-0000-0000-0000-00000000ab01', 'paid')
+$$, '23514', null, 'a "paid" notice carries what was paid before and after');
 
 reset role;
 set local role authenticated;

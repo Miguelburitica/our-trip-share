@@ -22,10 +22,19 @@ export interface LedgerChange {
   readonly after: LedgerEntry | null;
 }
 
+/**
+ * Why the seat is told: "reopened" (R14, their settled balance moved) or "paid" (someone else
+ * recorded, changed or removed a payment in their name, e.g. the toll the driver paid).
+ */
+export type NoticeReason = "reopened" | "paid";
+
 export interface BalanceNoticeProps {
   id: NoticeId;
   tripId: TripId;
   seatId: SeatId;
+  reason: NoticeReason;
+  /** For "paid": what the seat paid in this expense before and after, in base units. */
+  paid: { before: number; after: number } | null;
   /** Change to the seat's balance in base units: negative means they now owe more. */
   delta: number;
   cause: ChangeCause;
@@ -40,6 +49,53 @@ export function balanceDeltas(before: LedgerEntry | null, after: LedgerEntry | n
   const was = ledgerBalances(seats, before ? [before] : []);
   const now = ledgerBalances(seats, after ? [after] : []);
   return new Map(seats.map((id) => [id, (now.get(id) ?? 0) - (was.get(id) ?? 0)] as const).filter(([, d]) => d !== 0));
+}
+
+/** What each seat paid in one entry (expenses only; received money isn't a payment). */
+function paidIn(entry: LedgerEntry | null): Map<SeatId, number> {
+  const paid = new Map<SeatId, number>();
+  if (entry?.sign === 1) for (const p of entry.payers) paid.set(p.seatId, (paid.get(p.seatId) ?? 0) + p.base);
+  return paid;
+}
+
+/**
+ * The notices one money change produces, at most one per seat and never for whoever made it:
+ * - "paid" when someone else recorded, changed or removed what the seat paid, so they can check it;
+ * - otherwise "reopened" when it moves the balance of a seat that already settled (R14).
+ * `skip` holds seats nobody reads notices for (la vaca).
+ */
+export function detectNotices(
+  change: LedgerChange,
+  settlements: readonly SettlementLike[],
+  nextId: () => NoticeId,
+  skip: ReadonlySet<SeatId> = new Set(),
+): BalanceNotice[] {
+  const deltas = balanceDeltas(change.before, change.after);
+  const was = paidIn(change.before);
+  const now = paidIn(change.after);
+  const reopened = new Set(detectReopened(change, settlements, () => "check" as NoticeId).map((n) => n.seatId));
+  const seats = [...new Set([...deltas.keys(), ...was.keys(), ...now.keys()])];
+  return seats.flatMap((seatId) => {
+    if (seatId === change.by || skip.has(seatId)) return [];
+    const before = was.get(seatId) ?? 0;
+    const after = now.get(seatId) ?? 0;
+    const reason: NoticeReason | null = before !== after ? "paid" : reopened.has(seatId) ? "reopened" : null;
+    if (!reason) return [];
+    return [
+      BalanceNotice.fromPrimitives({
+        id: nextId(),
+        tripId: change.tripId,
+        seatId,
+        reason,
+        paid: reason === "paid" ? { before, after } : null,
+        delta: deltas.get(seatId) ?? 0,
+        cause: change.cause,
+        by: change.by,
+        createdAt: change.at,
+        dismissedAt: null,
+      }),
+    ];
+  });
 }
 
 /**
@@ -60,6 +116,8 @@ export function detectReopened(
         id: nextId(),
         tripId: change.tripId,
         seatId,
+        reason: "reopened",
+        paid: null,
         delta,
         cause: change.cause,
         by: change.by,

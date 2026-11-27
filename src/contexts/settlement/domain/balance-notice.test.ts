@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DomainError } from "@/shared-kernel/errors";
 import { ExpenseId, NoticeId, SeatId, TripId } from "@/shared-kernel/ids";
-import { balanceDeltas, detectReopened, type LedgerChange } from "./balance-notice";
+import { balanceDeltas, detectNotices, detectReopened, type LedgerChange } from "./balance-notice";
 import type { LedgerEntry, SettlementLike } from "./ledger-entry";
 
 const [mateo, juli, leo] = ["mateo", "juli", "leo"].map(SeatId);
@@ -55,5 +55,48 @@ describe("Balance reopened (R14)", () => {
     expect(() => notice.dismiss(leo, new Date())).toThrow(DomainError);
     notice.dismiss(juli, new Date("2026-11-23T00:00:00Z"));
     expect(notice.toPrimitives().dismissedAt).toEqual(new Date("2026-11-23T00:00:00Z"));
+  });
+});
+
+describe("Someone else recorded what you paid", () => {
+  const vaca = SeatId("vaca");
+  const toll = (payer: SeatId, amount: number): LedgerEntry => ({
+    expenseId: ExpenseId("peaje"),
+    sign: 1,
+    payers: [{ seatId: payer, base: amount }],
+    shares: [mateo, juli, leo].map((seatId, i) => ({ seatId, base: amount / 3 + (i === 0 ? amount % 3 : 0) })),
+  });
+  const summary = (c: LedgerChange, s: SettlementLike[] = [], skip = new Set<SeatId>()) =>
+    detectNotices(c, s, ids, skip).map((x) => {
+      const p = x.toPrimitives();
+      return [p.seatId, p.reason, p.paid];
+    });
+
+  it("tells Leo when Juli records the toll he paid while driving", () => {
+    expect(summary(change(null, toll(leo, 18_000), juli))).toEqual([[leo, "paid", { before: 0, after: 18_000 }]]);
+  });
+
+  it("says nothing when you record your own payment", () => {
+    expect(summary(change(null, toll(juli, 18_000), juli))).toEqual([]);
+  });
+
+  it("tells both when the payer changes, and when it is deleted", () => {
+    expect(summary(change(toll(leo, 18_000), toll(mateo, 18_000), juli))).toEqual([
+      [leo, "paid", { before: 18_000, after: 0 }],
+      [mateo, "paid", { before: 0, after: 18_000 }],
+    ]);
+    expect(summary(change(toll(leo, 18_000), null, juli))).toEqual([[leo, "paid", { before: 18_000, after: 0 }]]);
+  });
+
+  it("keeps one notice per seat: a settled payer gets 'paid', other settled seats 'reopened'", () => {
+    const juliSettled: SettlementLike[] = [{ from: juli, to: leo, baseAmount: 1, status: "confirmed" }];
+    expect(summary(change(null, toll(leo, 18_000), mateo), juliSettled)).toEqual([
+      [leo, "paid", { before: 0, after: 18_000 }],
+      [juli, "reopened", null],
+    ]);
+  });
+
+  it("never notifies la vaca", () => {
+    expect(summary(change(null, toll(vaca, 18_000), juli), [], new Set([vaca]))).toEqual([]);
   });
 });

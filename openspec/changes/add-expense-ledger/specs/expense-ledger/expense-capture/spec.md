@@ -33,6 +33,13 @@ The money fields of an expense (amount, currency, rate, payers, participants, sp
 - **WHEN** Ana and Leo both open version 3, Ana saves a new amount, and then Leo saves new shares based on version 3
 - **THEN** Ana's edit is stored as version 4 and Leo's edit is rejected as a conflict
 
+### Requirement: Recording what someone else paid
+Quick add SHALL let the recorder pick any active seat (or la vaca) as the payer from a list, and SHALL confirm who paid when the payer is not the recorder ("Guardado · pagó Leo").
+
+#### Scenario: Passenger records the toll
+- **WHEN** Juli opens quick add, taps "Pagó tú", picks Leo and saves $18.000
+- **THEN** the expense has payer Leo, recorder Juli, and quick add shows "Guardado · pagó Leo"
+
 ### Requirement: Payer change permission
 Changing who paid SHALL be allowed only for the current payer, the new payer, or an owner/admin.
 

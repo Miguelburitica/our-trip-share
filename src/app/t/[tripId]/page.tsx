@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { dayKey, expenseTitle, fmt } from "@/app/ui/money";
+import type { NoticeDTO } from "@/contexts/settlement/application/use-cases";
 import { dismissNoticeAction } from "./actions";
 import { loadTrip } from "./data";
 import { ReviewCard } from "./review-card";
@@ -122,24 +123,31 @@ export default async function Inicio({ params }: { params: Promise<{ tripId: str
               <Chevron />
             </Link>
           )}
-          {notices.value.slice(0, 3).map((n) => (
+          {notices.value.slice(0, 3).map((n) => {
+            const lines = noticeLines(n, nameOf(n.by), b.baseCurrency);
+            const text = (
+              <>
+                <span className="text-[15px] font-semibold text-accent-text">{lines.title}</span>
+                <span className="text-sm text-accent-text/80">{lines.detail}</span>
+              </>
+            );
+            return (
             <div key={n.id} role="status" className="flex items-center gap-3.5 rounded-[22px] bg-accent-soft px-4.5 py-4">
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span className="text-[15px] font-semibold text-accent-text">
-                  Tu saldo cambió: {n.delta < 0 ? "debes" : "te deben"} {fmt(Math.abs(n.delta), b.baseCurrency)} más
-                </span>
-                <span className="text-sm text-accent-text/80">
-                  {expenseTitle({ title: n.cause.title, category: n.cause.category, status: "complete" })} ·{" "}
-                  {nameOf(n.by)} {NOTICE_VERB[n.cause.kind]}
-                </span>
-              </span>
+              {n.cause.kind === "deleted" ? (
+                <span className="flex min-w-0 flex-1 flex-col">{text}</span>
+              ) : (
+                <Link href={`${base}/gastos/${n.cause.expenseId}`} className="flex min-w-0 flex-1 flex-col">
+                  {text}
+                </Link>
+              )}
               <form action={dismissNoticeAction.bind(null, tripId, n.id)}>
                 <button type="submit" className="flex min-h-11 items-center rounded-full bg-surface px-4 text-sm font-semibold">
                   Entendido
                 </button>
               </form>
             </div>
-          ))}
+          );
+          })}
           {(pendingForMe.length > 0 || drafts.length > 0) && (
           <Link href={pendingForMe.length ? `${base}/cuentas` : `${base}/gastos`} className="flex items-center gap-3.5 rounded-[22px] bg-surface px-4.5 py-4 shadow-card">
             <span className="flex min-w-0 flex-1 flex-col">
@@ -188,6 +196,22 @@ export default async function Inicio({ params }: { params: Promise<{ tripId: str
 }
 
 const NOTICE_VERB = { created: "lo agregó", edited: "lo editó", deleted: "lo borró" } as const;
+
+/** The two lines of a notice card: "Ana anotó que pagaste $18.000" / "Peaje · Revisa que esté bien". */
+function noticeLines(n: NoticeDTO, by: string, currency: string): { title: string; detail: string } {
+  const what = expenseTitle({ title: n.cause.title, category: n.cause.category, status: "complete" });
+  if (n.reason === "paid" && n.paid) {
+    const { before, after } = n.paid;
+    if (before === 0) return { title: `${by} anotó que pagaste ${fmt(after, currency)}`, detail: `${what} · Revisa que esté bien` };
+    if (after > 0) return { title: `${by} cambió lo que pagaste: ${fmt(after, currency)}`, detail: `${what} · Antes ${fmt(before, currency)}` };
+    if (n.cause.kind === "deleted") return { title: `${by} borró un gasto que pagaste`, detail: `${what} · ${fmt(before, currency)}` };
+    return { title: `${by} quitó tu pago de ${fmt(before, currency)}`, detail: `${what} · Ya no figura que pagaste` };
+  }
+  return {
+    title: `Tu saldo cambió: ${n.delta < 0 ? "debes" : "te deben"} ${fmt(Math.abs(n.delta), currency)} más`,
+    detail: `${what} · ${by} ${NOTICE_VERB[n.cause.kind]}`,
+  };
+}
 
 function Chevron() {
   return (

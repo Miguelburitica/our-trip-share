@@ -74,8 +74,11 @@ describe("Use cases wired through the composition root", () => {
       split: { method: "equal", participants: [seat("Juli"), seat("Leo")] },
     });
     if (!dinner.ok) throw dinner.error;
-    const notices = await c.settlement.listMyNotices(juli.id, tripId);
-    if (!notices.ok) throw notices.error;
+    const all = await c.settlement.listMyNotices(juli.id, tripId);
+    if (!all.ok) throw all.error;
+    // The demo seed has Mateo recording expenses Juli paid: those are "paid" notices, not R14.
+    expect(all.value.filter((n) => n.reason === "paid").length).toBeGreaterThan(0);
+    const notices = { value: all.value.filter((n) => n.reason === "reopened") };
     expect(notices.value).toMatchObject([{ delta: -30_000, cause: { kind: "created", title: "Cena" }, by: seat("Mateo") }]);
     // Mateo made the change and Leo never settled: neither gets a notice.
     const mateoNotices = await c.settlement.listMyNotices(DEMO_PRINCIPAL, tripId);
@@ -85,7 +88,31 @@ describe("Use cases wired through the composition root", () => {
     expect(!other.ok && other.error.code).toBe("forbidden");
     expect((await c.settlement.dismissNotice(juli.id, tripId, notices.value[0].id)).ok).toBe(true);
     const after = await c.settlement.listMyNotices(juli.id, tripId);
-    expect(after.ok && after.value).toEqual([]);
+    expect(after.ok && after.value.filter((n) => n.reason === "reopened")).toEqual([]);
+  });
+
+  it("tells the driver when someone else records the toll they paid", async () => {
+    const { c, tripId, seat } = await setup();
+    const invite = await c.membership.issueInvite(DEMO_PRINCIPAL, tripId, seat("Leo"));
+    if (!invite.ok) throw invite.error;
+    const leo = { id: PrincipalId("guest-leo"), kind: "guest" as const };
+    await c.membership.claimWithInvite(tripId, invite.value.token, leo);
+    const before = await c.settlement.listMyNotices(leo.id, tripId);
+    const seen = new Set(before.ok ? before.value.map((n) => n.id) : []);
+
+    const toll = await c.ledger.recordExpense(DEMO_PRINCIPAL, tripId, {
+      currency: "COP",
+      amount: 18_000,
+      title: "Peaje",
+      payers: [{ seatId: seat("Leo") }],
+      split: { method: "equal", participants: [seat("Mateo"), seat("Juli"), seat("Leo")] },
+    });
+    if (!toll.ok) throw toll.error;
+    const notices = await c.settlement.listMyNotices(leo.id, tripId);
+    if (!notices.ok) throw notices.error;
+    expect(notices.value.filter((n) => !seen.has(n.id))).toMatchObject([
+      { reason: "paid", paid: { before: 0, after: 18_000 }, delta: 12_000, cause: { kind: "created", title: "Peaje" }, by: seat("Mateo") },
+    ]);
   });
 
   it("scans a receipt: stores it, pre-fills from the reader, and attaches it on save", async () => {

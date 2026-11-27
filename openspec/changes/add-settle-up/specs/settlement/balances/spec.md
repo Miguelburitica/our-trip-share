@@ -45,3 +45,14 @@ When a money change (an expense created, completed, edited or deleted) moves the
 #### Scenario: Dismissing
 - **WHEN** Juli taps "Entendido" on her notice
 - **THEN** it no longer shows, and nobody else can dismiss it for her
+
+### Requirement: Payment recorded in your name
+When someone records, edits or deletes an expense so that what another seat paid changes (the driver's toll recorded by a passenger), the system SHALL record a notice for that seat with what they paid before and after, the expense and who changed it, so they can check it. A seat SHALL get at most one notice per change: this one takes the place of "Tu saldo cambió" when both apply. The seat that made the change and la vaca SHALL NOT be notified.
+
+#### Scenario: Toll recorded for the driver
+- **WHEN** Juli records a $18.000 toll with Leo as payer, split among the three
+- **THEN** Leo gets "Juli anotó que pagaste $18.000" linking to the expense, and Juli gets nothing
+
+#### Scenario: Payer moved away
+- **WHEN** Mateo changes the toll's payer from Leo to himself
+- **THEN** Leo gets a notice that his $18.000 payment was removed

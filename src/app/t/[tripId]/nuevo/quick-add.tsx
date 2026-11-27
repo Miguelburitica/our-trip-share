@@ -85,7 +85,8 @@ export function QuickAdd(props: {
   const [quote, setQuote] = useState<{ currency: string; rate: string | null } | null>(null);
   const [cardCharge, setCardCharge] = useState<string | null>(null);
   const [category, setCategory] = useState<string>("otro");
-  const [payerIndex, setPayerIndex] = useState(() => Math.max(0, props.people.findIndex((p) => p.id === props.mySeatId)));
+  const [payerId, setPayerId] = useState(props.mySeatId);
+  const [choosingPayer, setChoosingPayer] = useState(false);
   const [selected, setSelected] = useState<string[]>(() => props.presets.participants);
   const [groups, setGroups] = useState<Group[]>(props.presets.groups);
   const [naming, setNaming] = useState<string | null>(null);
@@ -93,7 +94,7 @@ export function QuickAdd(props: {
   const [receipt, setReceipt] = useState<{ path: string; title: string | null; note: string | null } | null>(null);
   const [scanning, setScanning] = useState(false);
   const photoInput = useRef<HTMLInputElement>(null);
-  const [status, setStatus] = useState<null | { kind: "saved"; warnings: string[]; held?: boolean } | { kind: "error"; message: string }>(null);
+  const [status, setStatus] = useState<null | { kind: "saved"; warnings: string[]; held?: boolean; paidBy?: string } | { kind: "error"; message: string }>(null);
   const [pending, startTransition] = useTransition();
 
   const foreign = cur !== props.currency;
@@ -119,7 +120,7 @@ export function QuickAdd(props: {
     setCardCharge(null);
   };
   const payers: Person[] = props.pot ? [...props.people, { id: props.pot.id, name: "la vaca", initials: "V" }] : props.people;
-  const payer = payers[payerIndex % payers.length];
+  const payer = payers.find((p) => p.id === payerId) ?? payers[0];
   const potPays = props.pot != null && payer.id === props.pot.id;
   const potShort = potPays && !foreign && amount > props.pot!.cash;
   const n = selected.length;
@@ -227,7 +228,7 @@ export function QuickAdd(props: {
         receiptPath: receipt?.path ?? null,
       });
       if (result.ok) {
-        setStatus({ kind: "saved", warnings: result.warnings, held: result.held });
+        setStatus({ kind: "saved", warnings: result.warnings, held: result.held, paidBy: payer.id === props.mySeatId ? undefined : potPays ? "la vaca" : payer.name });
         setDigits("");
         setReceipt(null);
         setCardCharge(null);
@@ -364,19 +365,54 @@ export function QuickAdd(props: {
         ))}
       </div>
 
+      {choosingPayer ? (
+        <section aria-label="¿Quién pagó?" className="flex flex-col gap-3 rounded-3xl bg-surface p-4 shadow-card">
+          <span className="text-[15px] font-semibold">¿Quién pagó?</span>
+          <div role="radiogroup" aria-label="Quién pagó" className="-mx-4 flex gap-3 overflow-x-auto px-4 [scrollbar-width:none]">
+            {payers.map((p) => {
+              const on = p.id === payer.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  onClick={() => {
+                    setPayerId(p.id);
+                    setChoosingPayer(false);
+                    setStatus(null);
+                  }}
+                  className="flex w-[54px] flex-none flex-col items-center gap-1.5"
+                >
+                  <span className={`flex size-11 items-center justify-center rounded-full text-sm font-semibold ${on ? "bg-ink text-bg" : "bg-tint"}`}>
+                    {p.initials}
+                  </span>
+                  <span className={`max-w-full truncate text-xs ${on ? "font-semibold" : "text-muted"}`}>
+                    {p.id === props.mySeatId ? "Tú" : p.id === props.pot?.id ? "La vaca" : p.name}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ) : (
       <button
         type="button"
-        onClick={() => setPayerIndex((i) => (i + 1) % payers.length)}
+        aria-label={`Pagó ${payer.id === props.mySeatId ? "tú" : payer.name}. Cambiar quién pagó`}
+        onClick={() => setChoosingPayer(true)}
         className="flex min-h-[50px] items-center gap-2.5 rounded-full bg-tint py-1.5 pr-4 pl-1.5 text-left"
       >
         <span className="flex size-[38px] items-center justify-center rounded-full bg-ink text-[13px] font-semibold text-bg">{payer.initials}</span>
         <span className="text-[15px] font-semibold">Pagó {payer.id === props.mySeatId ? "tú" : payer.name}</span>
-        {potPays && (
+        {potPays ? (
           <span className={`ml-auto text-[13px] ${potShort ? "font-semibold text-accent-text" : "text-muted"}`}>
             {potShort ? `La vaca solo tiene ${fmt(Math.max(0, props.pot!.cash), props.currency)}` : `Tiene ${fmt(props.pot!.cash, props.currency)}`}
           </span>
+        ) : (
+          <span className="ml-auto text-[13px] font-semibold text-muted">Cambiar</span>
         )}
       </button>
+      )}
 
       <section className="flex flex-col gap-3 rounded-3xl bg-surface p-4 shadow-card [@media(max-height:860px)]:gap-2 [@media(max-height:860px)]:py-3">
         <div className="flex items-baseline justify-between">
@@ -481,7 +517,7 @@ export function QuickAdd(props: {
 
       {status?.kind === "saved" ? (
         <div role="status" className="flex min-h-14 items-center justify-between gap-2.5 rounded-full bg-ink py-1.5 pr-1.5 pl-5.5 text-bg">
-          <span className="text-[15px] font-medium">{status.held ? "Falta que lo apruebe un admin" : "Guardado"}</span>
+          <span className="text-[15px] font-medium">{status.held ? "Falta que lo apruebe un admin" : status.paidBy ? `Guardado · pagó ${status.paidBy}` : "Guardado"}</span>
           <Link href={`/t/${props.tripId}/gastos`} className="flex min-h-11 items-center rounded-full bg-ink-2 px-4.5 text-sm font-semibold">
             Ver gastos
           </Link>

@@ -25,14 +25,14 @@ export type Database = {
           Tables: {
             "balance_notices": {
                   Row: {
-                    "by_seat": string | null,"cause_category": string,"cause_kind": string,"cause_title": string | null,"created_at": string,"delta": number,"dismissed_at": string | null,"expense_id": string | null,"id": string,"seat_id": string,"trip_id": string
+                    "by_seat": string | null,"cause_category": string,"cause_kind": string,"cause_title": string | null,"created_at": string,"delta": number,"dismissed_at": string | null,"expense_id": string | null,"id": string,"paid_after": number | null,"paid_before": number | null,"reason": string,"seat_id": string,"trip_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "by_seat"?: string | null,"cause_category": string,"cause_kind": string,"cause_title"?: string | null,"created_at"?: string,"delta": number,"dismissed_at"?: string | null,"expense_id"?: string | null,"id": string,"seat_id": string,"trip_id": string
+                    "by_seat"?: string | null,"cause_category": string,"cause_kind": string,"cause_title"?: string | null,"created_at"?: string,"delta": number,"dismissed_at"?: string | null,"expense_id"?: string | null,"id": string,"paid_after"?: number | null,"paid_before"?: number | null,"reason"?: string,"seat_id": string,"trip_id": string
                   }
                   Update: {
-                    "by_seat"?: string | null,"cause_category"?: string,"cause_kind"?: string,"cause_title"?: string | null,"created_at"?: string,"delta"?: number,"dismissed_at"?: string | null,"expense_id"?: string | null,"id"?: string,"seat_id"?: string,"trip_id"?: string
+                    "by_seat"?: string | null,"cause_category"?: string,"cause_kind"?: string,"cause_title"?: string | null,"created_at"?: string,"delta"?: number,"dismissed_at"?: string | null,"expense_id"?: string | null,"id"?: string,"paid_after"?: number | null,"paid_before"?: number | null,"reason"?: string,"seat_id"?: string,"trip_id"?: string
                   }
                   Relationships: [
                     {

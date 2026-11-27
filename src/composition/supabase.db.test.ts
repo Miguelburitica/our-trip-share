@@ -157,6 +157,25 @@ describe.skipIf(!url || !secret)("Supabase repositories (local stack)", () => {
     expect(data).toEqual([{ seat_id: seats.get("Ana"), delta: -10_000, cause_title: "Helado" }]);
   });
 
+  it("stores the notice for a payment someone else recorded in your name", async () => {
+    const juli = await newUser("juli");
+    const invite = await c.membership.issueInvite(mateo.id, tripId, seats.get("Juli")!);
+    if (!invite.ok) throw invite.error;
+    const claimed = await c.membership.claimWithInvite(tripId, invite.value.token, { id: juli, kind: "user" });
+    if (!claimed.ok) throw claimed.error;
+    const r = await c.ledger.recordExpense(mateo.id, tripId, {
+      currency: "COP",
+      amount: 18_000,
+      title: "Peaje",
+      payers: [{ seatId: seats.get("Juli")! }],
+      split: { method: "equal", participants: [seats.get("Mateo")!, seats.get("Juli")!] },
+    });
+    if (!r.ok) throw r.error;
+    const mine = await c.settlement.listMyNotices(juli, tripId);
+    if (!mine.ok) throw mine.error;
+    expect(mine.value.find((n) => n.cause.title === "Peaje")).toMatchObject({ reason: "paid", paid: { before: 0, after: 18_000 }, delta: 9_000 });
+  });
+
   it("stores receipt photos privately and serves them through signed URLs", async () => {
     const scan = await c.ledger.scanReceipt(mateo.id, tripId, { bytes: new Uint8Array([0xff, 0xd8, 0xff]), mediaType: "image/jpeg" });
     if (!scan.ok) throw scan.error;
