@@ -291,6 +291,15 @@ export class SettlementUseCases {
     });
   }
 
+  /** Every seat's balance, for server-side jobs (the evening digest). No caller to check. */
+  seatBalances(tripId: TripId): Promise<Result<Map<SeatId, number>>> {
+    return attempt(async () => {
+      const trip = await this.deps.membership.getTripView(tripId);
+      if (!trip) throw notFound("No encontramos ese viaje");
+      return (await this.compute(tripId, trip)).balances;
+    });
+  }
+
   getTripBalances(principalId: PrincipalId, tripId: TripId, mode?: SettlementTripView["settleMode"]): Promise<Result<BalancesDTO>> {
     return attempt(async () => {
       const { trip, actor } = await this.context(principalId, tripId);

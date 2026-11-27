@@ -6,6 +6,15 @@ import { Expense, type ExpenseProps } from "../domain/expense";
 export class InMemoryExpenseRepository implements ExpenseRepository {
   private rows = new Map<ExpenseId, ExpenseProps>();
 
+  async recordedBetween(from: Date, to: Date) {
+    const counts = new Map<TripId, number>();
+    for (const r of this.rows.values()) {
+      if (r.status !== "complete" || r.createdAt < from || r.createdAt >= to) continue;
+      counts.set(r.tripId, (counts.get(r.tripId) ?? 0) + 1);
+    }
+    return [...counts].map(([tripId, count]) => ({ tripId, count }));
+  }
+
   async get(id: ExpenseId) {
     const row = this.rows.get(id);
     return row ? Expense.fromPrimitives(structuredClone(row)) : null;

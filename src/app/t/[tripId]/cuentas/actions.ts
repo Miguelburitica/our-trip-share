@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { ERROR_COPY as COPY } from "@/app/ui/copy";
 import { requirePrincipal } from "@/composition/auth";
 import { getContainer } from "@/composition/server";
@@ -28,12 +29,23 @@ export async function recordSettlementAction(input: {
 }): Promise<SettleResult> {
   const { id: principal } = await requirePrincipal();
   const c = await getContainer();
-  const r = await c.settlement.recordSettlement(principal, TripId(input.tripId), {
-    from: SeatId(String(input.from)),
-    to: SeatId(String(input.to)),
-    amount: Number(input.amount),
-    method: String(input.method),
-  });
+  const from = SeatId(String(input.from));
+  const to = SeatId(String(input.to));
+  const r = await c.settlement.recordSettlement(principal, TripId(input.tripId), { from, to, amount: Number(input.amount), method: String(input.method) });
+  if (r.ok && r.value.status === "pending") {
+    after(async () => {
+      // Money into la vaca is confirmed by whoever holds it.
+      const trip = await c.membership.getTrip(principal, TripId(input.tripId));
+      const pot = trip.ok ? trip.value.pot : null;
+      await c.notifications.settlementRecorded(TripId(input.tripId), {
+        from,
+        to,
+        amount: Number(input.amount),
+        pending: true,
+        potHolder: pot && pot.seatId === to ? pot.holderSeatId : undefined,
+      });
+    });
+  }
   return done(input.tripId, r, (v) => (v.overpaymentCredit > 0 ? "Queda un saldo a favor" : undefined));
 }
 
@@ -57,6 +69,7 @@ export async function startSettlingAction(tripId: string): Promise<SettleResult>
   if (!started.ok) return done(tripId, started);
   // If this fails the plan still freezes on the next read of Cuentas.
   await c.settlement.freezePlan(principal, TripId(tripId));
+  after(() => c.notifications.settlingStarted(TripId(tripId), principal));
   return done(tripId, started);
 }
 
@@ -87,7 +100,9 @@ export async function reopenTripAction(tripId: string): Promise<SettleResult> {
 export async function reviewShareAction(tripId: string, status: "ok" | "question", note?: string): Promise<SettleResult> {
   const { id: principal } = await requirePrincipal();
   const c = await getContainer();
-  return done(tripId, await c.settlement.reviewMyShare(principal, TripId(tripId), { status: String(status), note: note ? String(note).slice(0, 400) : null }));
+  const r = await c.settlement.reviewMyShare(principal, TripId(tripId), { status: String(status), note: note ? String(note).slice(0, 400) : null });
+  if (r.ok && status === "question" && note) after(() => c.notifications.shareQuestion(TripId(tripId), principal, String(note)));
+  return done(tripId, r);
 }
 
 /** "Compartir resumen": creates (or replaces) the read-only link, or turns it off. */

@@ -70,3 +70,39 @@ function offlinePage() {
 <p style="color:#52637e;margin:0">Abre el viaje una vez con señal para poder usarlo sin conexión.</p></div></body></html>`;
   return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
 }
+
+/* Web Push: one quiet notice; the same tag replaces the previous one instead of stacking. */
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = { body: event.data ? event.data.text() : "" };
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title || "Our Share", {
+      body: data.body || "",
+      tag: data.tag,
+      data: { url: data.url || "/" },
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = new URL(event.notification.data?.url || "/", self.location.origin).href;
+  event.waitUntil(
+    (async () => {
+      const open = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      for (const client of open) {
+        if (new URL(client.url).origin === self.location.origin && "focus" in client) {
+          await client.navigate(url).catch(() => {});
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(url);
+    })(),
+  );
+});

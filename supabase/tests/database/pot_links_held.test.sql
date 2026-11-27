@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(9);
+select plan(10);
 
 insert into auth.users (id, aud, role, email) values
   ('00000000-0000-0000-0000-0000000000c1', 'authenticated', 'authenticated', 'mateo@test.local');
@@ -52,6 +52,8 @@ select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-0000000
 
 select throws_ok($$ select count(*) from public.summary_links $$, '42501', null,
                  'even the owner cannot read summary tokens directly');
+select throws_ok($$ select count(*) from public.push_subscriptions $$, '42501', null,
+                 'push endpoints and keys are server only');
 select throws_ok($$ select count(*) from public.held_changes $$, '42501', null,
                  'changes waiting for approval are read through the server only');
 select throws_ok($$

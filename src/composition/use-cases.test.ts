@@ -760,3 +760,69 @@ describe("Expenses saved offline", () => {
     expect(reads).toBe(0);
   });
 });
+
+describe("Push notifications", () => {
+  const sub = (n: string) => ({ endpoint: `https://push.example/${n}`, p256dh: "k", auth: "a" });
+
+  const withPush = async (gone: string[] = []) => {
+    const sent: Array<{ endpoint: string; body: string; title: string }> = [];
+    const push = {
+      send: async (s: { endpoint: string }, m: { body: string; title: string }) => {
+        if (gone.includes(s.endpoint)) return "gone" as const;
+        sent.push({ endpoint: s.endpoint, body: m.body, title: m.title });
+        return "sent" as const;
+      },
+    };
+    const clock = fixedClock("2026-11-22T20:00:00-05:00");
+    const c = createMemoryContainer({ clock, ids: sequentialIds("id"), push });
+    const tripId = await seedCartagena(c);
+    const trip = await c.membership.getTrip(DEMO_PRINCIPAL, tripId);
+    if (!trip.ok) throw trip.error;
+    const seat = (name: string) => trip.value.seats.find((s) => s.displayName === name)!.id as SeatId;
+    const invite = await c.membership.issueInvite(DEMO_PRINCIPAL, tripId, seat("Leo"));
+    if (!invite.ok) throw invite.error;
+    const leo = PrincipalId("guest-leo");
+    await c.membership.claimWithInvite(tripId, invite.value.token, { id: leo, kind: "guest" });
+    return { c, tripId, seat, leo, sent };
+  };
+
+  it("tells the driver on their phone when someone else records the toll they paid", async () => {
+    const { c, tripId, seat, leo, sent } = await withPush();
+    await c.notifications.subscribe(leo, sub("leo-phone"));
+    await c.notifications.subscribe(DEMO_PRINCIPAL, sub("mateo-phone"));
+    const r = await c.ledger.recordExpense(DEMO_PRINCIPAL, tripId, {
+      currency: "COP",
+      amount: 18_000,
+      title: "Peaje",
+      payers: [{ seatId: seat("Leo") }],
+      split: { method: "equal", participants: [seat("Mateo"), seat("Leo")] },
+    });
+    expect(r.ok).toBe(true);
+    expect(sent).toEqual([{ endpoint: "https://push.example/leo-phone", title: "Cartagena", body: "Mateo anotó que pagaste $18.000 · Peaje" }]);
+  });
+
+  it("forgets a phone the push service says is gone", async () => {
+    const { c, tripId, leo, sent } = await withPush(["https://push.example/old"]);
+    await c.notifications.subscribe(leo, sub("old"));
+    await c.notifications.subscribe(leo, sub("new"));
+    await c.notifications.joinRequested(tripId, "Nadie");
+    await c.membership.startSettling(DEMO_PRINCIPAL, tripId);
+    await c.notifications.settlingStarted(tripId, DEMO_PRINCIPAL);
+    await c.notifications.settlingStarted(tripId, DEMO_PRINCIPAL);
+    expect(sent.map((s) => s.endpoint)).toEqual(["https://push.example/new", "https://push.example/new"]);
+  });
+
+  it("sends the evening digest to members of trips with expenses today", async () => {
+    const { c, leo, sent } = await withPush();
+    await c.notifications.subscribe(leo, sub("leo-phone"));
+    expect(await c.notifications.sendDigest()).toBe(1);
+    expect(sent[0]).toMatchObject({ title: "Hoy en Cartagena" });
+    expect(sent[0].body).toMatch(/^\d+ gastos · (debes|te deben) \$/);
+  });
+
+  it("sends nothing when push isn't configured", async () => {
+    const c = createMemoryContainer({ ids: sequentialIds("id") });
+    expect(c.notifications.enabled).toBe(false);
+    expect(await c.notifications.sendDigest()).toBe(0);
+  });
+});

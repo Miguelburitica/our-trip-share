@@ -42,15 +42,29 @@ import { TripMembershipUseCases } from "@/contexts/trip-membership/application/u
 import { hashTokenService } from "@/contexts/trip-membership/infrastructure/hash-token-service";
 import { InMemoryTripRepository } from "@/contexts/trip-membership/infrastructure/in-memory-trip-repository";
 import { SupabaseTripRepository } from "@/contexts/trip-membership/infrastructure/supabase-trip-repository";
+import type { PushSender, PushSubscriptionRepository } from "@/contexts/notifications/application/ports";
+import { NotificationUseCases } from "@/contexts/notifications/application/use-cases";
+import { InMemoryPushSubscriptionRepository } from "@/contexts/notifications/infrastructure/in-memory-push-subscriptions";
+import { SupabasePushSubscriptionRepository } from "@/contexts/notifications/infrastructure/supabase-push-subscriptions";
 import type { Db } from "@/platform/supabase/db";
 import { systemClock, type Clock } from "@/shared-kernel/clock";
 import { uuidGenerator, type IdGenerator } from "@/shared-kernel/ids";
-import { closeChecks, reopenCheck, ledgerMembershipReader, ledgerReader, settlementListener, settlementMembershipReader } from "./context-adapters";
+import {
+  closeChecks,
+  digestSource,
+  ledgerListeners,
+  ledgerMembershipReader,
+  ledgerReader,
+  notificationDirectory,
+  reopenCheck,
+  settlementMembershipReader,
+} from "./context-adapters";
 
 export interface Container {
   membership: TripMembershipUseCases;
   ledger: ExpenseLedgerUseCases;
   settlement: SettlementUseCases;
+  notifications: NotificationUseCases;
 }
 
 /** What each backend must provide: the repositories plus the queries other contexts ask them. */
@@ -66,6 +80,7 @@ export interface Repositories {
   snapshots: PlanSnapshotRepository;
   reviews: ShareReviewRepository;
   links: SummaryLinkRepository;
+  pushSubscriptions: PushSubscriptionRepository;
 }
 
 export interface ContainerOptions {
@@ -77,6 +92,13 @@ export interface ContainerOptions {
   compressor?: ReceiptCompressor | null;
   /** Daily FX rates; null/absent leaves foreign-currency expenses "tasa pendiente". */
   rates?: FxRateProvider | null;
+  /** Web Push; null/absent sends nothing (no VAPID keys configured). */
+  push?: PushSender | null;
+  /**
+   * Runs side work after the response (Next's `after`). Absent: runs it right away and waits,
+   * which is what tests want.
+   */
+  defer?: (task: () => Promise<unknown>) => void;
 }
 
 /**
@@ -86,7 +108,7 @@ export interface ContainerOptions {
 export function createContainer(repos: Repositories, opts: ContainerOptions = {}): Container {
   const clock = opts.clock ?? systemClock;
   const ids = opts.ids ?? uuidGenerator;
-  const { trips, expenses, splitGroups, receipts, held, settlements, notices, handles, snapshots, reviews, links } = repos;
+  const { trips, expenses, splitGroups, receipts, held, settlements, notices, handles, snapshots, reviews, links, pushSubscriptions } = repos;
   const settlement = new SettlementUseCases({
     settlements,
     notices,
@@ -97,6 +119,14 @@ export function createContainer(repos: Repositories, opts: ContainerOptions = {}
     ledger: ledgerReader(expenses),
     membership: settlementMembershipReader(trips),
     ids,
+    clock,
+  });
+
+  const notifications = new NotificationUseCases({
+    subscriptions: pushSubscriptions,
+    directory: notificationDirectory(trips),
+    sender: opts.push ?? null,
+    digest: digestSource(expenses, settlement),
     clock,
   });
 
@@ -123,11 +153,12 @@ export function createContainer(repos: Repositories, opts: ContainerOptions = {}
       held,
       reopenCheck: reopenCheck(settlement),
       membership: ledgerMembershipReader(trips),
-      events: settlementListener(settlement),
+      events: ledgerListeners(settlement, notifications, opts.defer),
       ids,
       clock,
     }),
     settlement,
+    notifications,
   };
 }
 
@@ -145,6 +176,7 @@ export function createMemoryContainer(opts: ContainerOptions = {}): Container {
       snapshots: new InMemoryPlanSnapshotRepository(),
       reviews: new InMemoryShareReviewRepository(),
       links: new InMemorySummaryLinkRepository(),
+      pushSubscriptions: new InMemoryPushSubscriptionRepository(),
     },
     opts,
   );
@@ -164,6 +196,7 @@ export function createSupabaseContainer(db: Db, opts: ContainerOptions = {}): Co
       snapshots: new SupabasePlanSnapshotRepository(db),
       reviews: new SupabaseShareReviewRepository(db),
       links: new SupabaseSummaryLinkRepository(db),
+      pushSubscriptions: new SupabasePushSubscriptionRepository(db),
     },
     opts,
   );

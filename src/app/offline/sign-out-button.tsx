@@ -2,6 +2,7 @@
 
 import { useTransition } from "react";
 import { signOutAction } from "@/app/t/[tripId]/actions";
+import { disablePush } from "@/app/notifications/push";
 import { forgetEverything } from "./client";
 import { pendingStore } from "./pending-store";
 
@@ -15,6 +16,8 @@ export function SignOutButton() {
         const n = waiting === 1 ? "1 gasto que aún no sube" : `${waiting} gastos que aún no suben`;
         if (!window.confirm(`Tienes ${n}. Si cierras sesión ahora, se pierden. ¿Cerrar sesión igual?`)) return;
       }
+      // This phone stops getting this person's notices.
+      await disablePush().catch(() => {});
       await forgetEverything();
       await signOutAction();
     });

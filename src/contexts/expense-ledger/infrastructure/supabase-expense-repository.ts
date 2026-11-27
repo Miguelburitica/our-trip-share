@@ -133,6 +133,16 @@ export class SupabaseExpenseRepository implements ExpenseRepository {
     this.persistedHistory.set(expense, props.history.length);
   }
 
+  async recordedBetween(from: Date, to: Date) {
+    const rows = unwrapAll(
+      await this.db.from("expenses").select("trip_id").eq("status", "complete").gte("created_at", from.toISOString()).lt("created_at", to.toISOString()),
+      "expenses recorded between",
+    );
+    const counts = new Map<TripId, number>();
+    for (const r of rows) counts.set(r.trip_id as TripId, (counts.get(r.trip_id as TripId) ?? 0) + 1);
+    return [...counts].map(([tripId, count]) => ({ tripId, count }));
+  }
+
   async listByTrip(tripId: TripId) {
     const rows = unwrapAll(
       await this.db.from("expenses").select(SELECT).eq("trip_id", tripId).order("occurred_at"),

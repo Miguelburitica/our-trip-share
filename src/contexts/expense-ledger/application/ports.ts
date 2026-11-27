@@ -10,6 +10,8 @@ export interface ExpenseRepository {
   /** Must reject the write if the stored money version is not `expectedMoneyVersion` (conflict). */
   save(expense: Expense, expectedMoneyVersion: number | null): Promise<void>;
   listByTrip(tripId: TripId): Promise<Expense[]>;
+  /** Trips with complete expenses recorded in [from, to), and how many (the evening digest). */
+  recordedBetween(from: Date, to: Date): Promise<Array<{ tripId: TripId; count: number }>>;
 }
 
 /** The ledger's port onto trip-membership. */

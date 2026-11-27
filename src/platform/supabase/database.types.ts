@@ -237,6 +237,20 @@ isOneToOne: true
       referencedColumns: ["id"]
     }
                   ]
+                },"push_subscriptions": {
+                  Row: {
+                    "auth": string,"created_at": string,"endpoint": string,"p256dh": string,"principal_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "auth": string,"created_at"?: string,"endpoint": string,"p256dh": string,"principal_id": string
+                  }
+                  Update: {
+                    "auth"?: string,"created_at"?: string,"endpoint"?: string,"p256dh"?: string,"principal_id"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"seats": {
                   Row: {
                     "created_at": string,"created_by": string | null,"default_excluded": boolean,"display_name": string,"holder_seat_id": string | null,"id": string,"invite_token_hash": string | null,"link_kind": Database["public"]['Enums']["link_kind"],"pending_kind": Database["public"]['Enums']["link_kind"] | null,"pending_principal_id": string | null,"pending_requested_at": string | null,"position": number,"principal_id": string | null,"role": Database["public"]['Enums']["seat_role"],"status": Database["public"]['Enums']["seat_status"],"trip_id": string

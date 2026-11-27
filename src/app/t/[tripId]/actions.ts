@@ -1,6 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
+import { categoryLabel } from "@/contexts/notifications/domain/messages";
 import { redirect } from "next/navigation";
 import { CATEGORIES, type Category } from "@/contexts/expense-ledger/domain/expense";
 import { requirePrincipal, signOut } from "@/composition/auth";
@@ -65,6 +67,7 @@ export async function recordExpenseAction(input: {
   });
   if (!result.ok) return { ok: false, message: result.error.message || COPY[result.error.code] };
   revalidatePath(`/t/${input.tripId}`, "layout");
+  if (result.value.expense.held) after(() => c.notifications.changeHeld(TripId(input.tripId), principal, result.value.expense.title ?? categoryLabel(category)));
   return { ok: true, held: result.value.expense.held === true, warnings: result.value.warnings.map((w) => WARNING_COPY[w.code]) };
 }
 
@@ -104,6 +107,7 @@ export async function editSplitAction(input: {
     return { ok: false, message: r.error.message || COPY[r.error.code] };
   }
   revalidatePath(`/t/${input.tripId}`, "layout");
+  if (r.value.held) after(() => c.notifications.changeHeld(tripId, principal, current.value.title ?? categoryLabel(current.value.category)));
   return { ok: true, held: r.value.held === true };
 }
 
@@ -114,6 +118,7 @@ export async function deleteExpenseAction(tripId: string, expenseId: string): Pr
   const r = await c.ledger.deleteExpense(principal, TripId(tripId), ExpenseId(String(expenseId)));
   if (!r.ok) return { ok: false, message: r.error.message || COPY[r.error.code] };
   revalidatePath(`/t/${tripId}`, "layout");
+  if (r.value.held) after(() => c.notifications.changeHeld(TripId(tripId), principal, "un gasto"));
   redirect(r.value.held ? `/t/${tripId}/gastos/${expenseId}?pendiente=1` : `/t/${tripId}/gastos?borrado=1`);
 }
 

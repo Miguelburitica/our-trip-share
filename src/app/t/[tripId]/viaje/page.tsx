@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PushToggle } from "@/app/notifications/push-toggle";
 import { SignOutButton } from "@/app/offline/sign-out-button";
 import QRCode from "qrcode";
 import { requestOrigin } from "@/app/ui/origin";
@@ -110,6 +111,8 @@ export default async function Viaje({
         canManage={canInvite && trip.status !== "closed"}
         mySeatId={trip.mySeatId}
       />
+
+      {real && <PushToggle />}
 
       <section aria-label="Herramientas" className="flex flex-col gap-2.5">
         <h2 className="px-1 text-[15px] font-semibold">Herramientas</h2>

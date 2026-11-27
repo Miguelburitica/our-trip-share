@@ -188,6 +188,17 @@ describe.skipIf(!url || !secret)("Supabase repositories (local stack)", () => {
     expect(count).toBe(1);
   });
 
+  it("stores push subscriptions per device and forgets them", async () => {
+    const endpoint = `https://push.example/${crypto.randomUUID()}`;
+    await c.notifications.subscribe(mateo.id, { endpoint, p256dh: "key", auth: "secret" });
+    await c.notifications.subscribe(mateo.id, { endpoint, p256dh: "key2", auth: "secret2" });
+    const { data } = await db.from("push_subscriptions").select("p256dh").eq("endpoint", endpoint);
+    expect(data).toEqual([{ p256dh: "key2" }]);
+    await c.notifications.unsubscribe(endpoint);
+    const { count } = await db.from("push_subscriptions").select("endpoint", { count: "exact", head: true }).eq("endpoint", endpoint);
+    expect(count).toBe(0);
+  });
+
   it("stores receipt photos privately and serves them through signed URLs", async () => {
     const scan = await c.ledger.scanReceipt(mateo.id, tripId, { bytes: new Uint8Array([0xff, 0xd8, 0xff]), mediaType: "image/jpeg" });
     if (!scan.ok) throw scan.error;
