@@ -47,3 +47,14 @@ An expense created without a rate SHALL be marked "rate pending" and SHALL NOT c
 #### Scenario: Created offline abroad
 - **WHEN** a 20.00 USD taxi is recorded with no rate available
 - **THEN** the expense is stored with status rate pending and is excluded from balances
+
+### Requirement: Rate typed by hand
+For a foreign-currency expense, a member SHALL be able to type the rate ("1 DOP = 62 COP") when they exchanged cash, both in quick add and later in the expense detail. Rates SHALL be read the Colombian way (dots group thousands, the comma is the decimal mark). A typed rate SHALL be frozen like any other and labelled "tasa puesta a mano"; one more than 25% away from the day's rate SHALL show a warning but still be allowed. What the card charged still wins over any rate.
+
+#### Scenario: Cash changed at a casa de cambio
+- **WHEN** Ana records RD$1.500 and types "62" as the rate while the day's is 59
+- **THEN** the expense counts $93.000 COP, shows "1 DOP = 62 COP · tasa puesta a mano", and an edit to its split keeps 62
+
+#### Scenario: Probable typo
+- **WHEN** someone types "39" while the day's rate is about 59
+- **THEN** quick add warns "Muy distinta a la del día (59,05). Revisa que esté bien." before saving

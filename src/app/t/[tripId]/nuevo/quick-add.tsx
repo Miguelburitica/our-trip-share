@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
-import { fmt, parseAmount } from "@/app/ui/money";
+import { fmt, parseAmount, parseRate, rateShort } from "@/app/ui/money";
 import { CURRENCIES, isCurrencyCode } from "@/shared-kernel/money/currency";
 import { FxRate } from "@/shared-kernel/money/fx-rate";
 import { queueExpense, syncPending, withTimeout } from "@/app/offline/client";
@@ -85,6 +85,8 @@ export function QuickAdd(props: {
   const [cur, setCur] = useState(props.currency);
   const [quote, setQuote] = useState<{ currency: string; rate: string | null } | null>(null);
   const [cardCharge, setCardCharge] = useState<string | null>(null);
+  // A rate typed by hand (cash exchanged at a casa de cambio): "1 DOP = 62".
+  const [manualRate, setManualRate] = useState<string | null>(null);
   const [category, setCategory] = useState<string>("otro");
   const [payerId, setPayerId] = useState(props.mySeatId);
   const [choosingPayer, setChoosingPayer] = useState(false);
@@ -104,7 +106,10 @@ export function QuickAdd(props: {
   const amount = decimals ? (parseAmount(digits, cur) ?? 0) : Number(digits || "0");
   const rate = quote?.currency === cur ? quote.rate : null;
   const charged = cardCharge === null ? null : parseAmount(cardCharge, props.currency);
-  const approxBase = foreign ? (charged ?? toBase(amount, cur, props.currency, rate)) : null;
+  const typedRate = manualRate === null ? null : parseRate(manualRate);
+  const approxBase = foreign ? (charged ?? toBase(amount, cur, props.currency, typedRate ?? (manualRate === null ? rate : null))) : null;
+  // A typed rate far from the day's is probably a typo ("39" for "3.900").
+  const farFromDay = typedRate !== null && rate !== null && Math.abs(Number(typedRate) / Number(rate) - 1) > 0.25;
 
   useEffect(() => {
     if (!foreign) return;
@@ -120,6 +125,7 @@ export function QuickAdd(props: {
     setCur(code);
     setDigits("");
     setCardCharge(null);
+    setManualRate(null);
   };
   const payers: Person[] = props.pot ? [...props.people, { id: props.pot.id, name: "la vaca", initials: "V" }] : props.people;
   const payer = payers.find((p) => p.id === payerId) ?? payers[0];
@@ -189,6 +195,7 @@ export function QuickAdd(props: {
       if (r.currency && r.currency !== cur && CURRENCY_CODES.includes(r.currency)) {
         setCur(r.currency);
         setCardCharge(null);
+        setManualRate(null);
       }
       if (r.amount) {
         const d = decimalsOf(r.currency ?? cur);
@@ -229,6 +236,7 @@ export function QuickAdd(props: {
     setDigits("");
     setReceipt(null);
     setCardCharge(null);
+    setManualRate(null);
   };
 
   const save = () =>
@@ -240,6 +248,7 @@ export function QuickAdd(props: {
         amount,
         currency: cur,
         cardCharge: foreign ? charged : null,
+        rate: foreign && cardCharge === null ? typedRate : null,
         category,
         payerSeatId: payer.id,
         participantIds: selected,
@@ -327,6 +336,21 @@ export function QuickAdd(props: {
                   className="h-8 w-28 rounded-full bg-tint px-3 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
                 />
               </label>
+            ) : manualRate !== null ? (
+              <label className="flex items-center gap-1.5 font-semibold text-ink">
+                1 {cur} =
+                <input
+                  inputMode="decimal"
+                  autoFocus
+                  value={manualRate}
+                  onChange={(e) => setManualRate(e.target.value)}
+                  placeholder={rate ? rateShort(rate) : props.currency}
+                  aria-label={`Cuántos ${props.currency} por 1 ${cur}`}
+                  className="h-8 w-24 rounded-full bg-tint px-3 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+                />
+                {props.currency}
+                {approxBase !== null && <span className="font-normal text-muted">≈ {fmt(approxBase, props.currency)}</span>}
+              </label>
             ) : (
               <span>
                 {approxBase !== null
@@ -336,13 +360,32 @@ export function QuickAdd(props: {
                     : "Buscando la tasa…"}
               </span>
             )}
-            <button
-              type="button"
-              onClick={() => setCardCharge(cardCharge === null ? "" : null)}
-              className="min-h-8 font-semibold text-accent-text"
-            >
-              {cardCharge === null ? "¿Cuánto cobró la tarjeta?" : "Usar la tasa del día"}
-            </button>
+            {cardCharge === null && manualRate === null ? (
+              <>
+                <button type="button" onClick={() => setCardCharge("")} className="min-h-8 font-semibold text-accent-text">
+                  ¿Cuánto cobró la tarjeta?
+                </button>
+                <button type="button" onClick={() => setManualRate("")} className="min-h-8 font-semibold text-accent-text">
+                  Poner la tasa
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setCardCharge(null);
+                  setManualRate(null);
+                }}
+                className="min-h-8 font-semibold text-accent-text"
+              >
+                Usar la tasa del día
+              </button>
+            )}
+            {farFromDay && (
+              <span role="status" className="w-full text-center font-medium text-accent-text">
+                Muy distinta a la del día ({rateShort(rate!)}). Revisa que esté bien.
+              </span>
+            )}
           </span>
         )}
         {status?.kind === "saved" && status.held && (

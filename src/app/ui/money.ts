@@ -20,6 +20,31 @@ export function parseAmount(text: string, currency: string): number | null {
   return Number(m[1] || "0") * 10 ** exp + Number((m[2] ?? "").padEnd(exp, "0").slice(0, exp) || "0");
 }
 
+/**
+ * A rate as typed in Colombia ("1 USD = 3.900" or "1 DOP = 59,5"): dots group thousands, the comma
+ * is the decimal mark. Returns a plain decimal string ("3900", "59.5") or null.
+ */
+export function parseRate(text: string): string | null {
+  const t = text.replace(/\s/g, "");
+  if (!/^\d{1,3}(\.\d{3})*(,\d+)?$|^\d+(,\d+)?$/.test(t)) return null;
+  const [whole, fraction = ""] = t.replace(/\./g, "").split(",");
+  const trimmed = fraction.replace(/0+$/, "");
+  if (trimmed.length > 8 || /^0+$/.test(whole + trimmed)) return null;
+  return trimmed ? `${Number(whole)}.${trimmed}` : String(Number(whole));
+}
+
+/** "3900" → "3.900", "59.5" → "59,5" (how the person would type it back). */
+export function rateInput(rate: string): string {
+  const [whole, fraction] = rate.split(".");
+  return Number(whole).toLocaleString("es-CO") + (fraction ? `,${fraction}` : "");
+}
+
+/** A rate to read, not to type: "59,05" (or "0,0167" below 1). */
+export function rateShort(rate: string): string {
+  const n = Number(rate);
+  return new Intl.NumberFormat("es-CO", { maximumFractionDigits: n < 1 ? 4 : 2 }).format(n);
+}
+
 /** Units → what goes in an amount field ("30.000" in COP, "12.50" in USD). */
 export function amountInput(units: number, currency: string): string {
   const exp = exponentOf(currency);

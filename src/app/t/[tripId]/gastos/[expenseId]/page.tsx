@@ -85,12 +85,25 @@ export default async function DetalleGasto({ params }: { params: Promise<{ tripI
                 {fmt(e.baseAmount!, trip.baseCurrency)} {trip.baseCurrency}
               </p>
               <p className="-mt-1 text-sm text-ink-2">
-                {e.fxSource === "card_charge" ? `Lo que cobró la tarjeta · ${rateLabel}` : `${rateLabel} · tasa del día del gasto`}
+                {e.fxSource === "card_charge"
+                  ? `Lo que cobró la tarjeta · ${rateLabel}`
+                  : e.fxSource === "manual"
+                    ? `${rateLabel} · tasa puesta a mano`
+                    : `${rateLabel} · tasa del día del gasto`}
               </p>
             </>
           )}
           {!closed && (
-            <RateEditor tripId={tripId} expenseId={e.id} version={e.moneyVersion} baseCurrency={trip.baseCurrency} pending={e.ratePending} charged={e.fxSource === "card_charge"} />
+            <RateEditor
+              tripId={tripId}
+              expenseId={e.id}
+              version={e.moneyVersion}
+              currency={cur}
+              baseCurrency={trip.baseCurrency}
+              pending={e.ratePending}
+              source={e.fxSource}
+              rate={e.fxRate}
+            />
           )}
         </section>
       )}

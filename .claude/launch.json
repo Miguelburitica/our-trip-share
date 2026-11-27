@@ -20,6 +20,19 @@
         "3100"
       ],
       "port": 3100
+    },
+    {
+      "name": "web-demo",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATA_BACKEND=memory",
+        "npx",
+        "next",
+        "dev",
+        "-p",
+        "3000"
+      ],
+      "port": 3000
     }
   ]
 }

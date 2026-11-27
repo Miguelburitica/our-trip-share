@@ -389,6 +389,27 @@ describe("Foreign-currency expenses", () => {
   });
 });
 
+describe("Rates typed by hand", () => {
+  it("records a cash exchange rate, keeps it through edits, and lets it be corrected later", async () => {
+    const rates = new FixedRateProvider({ "DOP:COP": "59" });
+    const c = createMemoryContainer({ clock: fixedClock("2026-11-22T20:00:00-05:00"), ids: sequentialIds("fx"), rates });
+    const tripId = await seedCartagena(c);
+    // RD$1.500 at the casa de cambio's 62 instead of the day's 59.
+    const r = await c.ledger.recordExpense(DEMO_PRINCIPAL, tripId, { currency: "DOP", amount: 150_000, fx: { kind: "rate", rate: "62", source: "manual" } });
+    if (!r.ok) throw r.error;
+    expect(r.value.expense).toMatchObject({ baseAmount: 93_000, fxRate: "62", fxSource: "manual" });
+
+    const edited = await c.ledger.editExpenseMoney(DEMO_PRINCIPAL, tripId, r.value.expense.id, 1, { currency: "DOP", amount: 200_000 });
+    expect(edited.ok && edited.value).toMatchObject({ baseAmount: 124_000, fxRate: "62", fxSource: "manual" });
+
+    const fixed = await c.ledger.setExpenseRate(DEMO_PRINCIPAL, tripId, r.value.expense.id, 2, { rate: "60.5" });
+    expect(fixed.ok && fixed.value).toMatchObject({ baseAmount: 121_000, fxRate: "60.5", fxSource: "manual" });
+
+    const bad = await c.ledger.setExpenseRate(DEMO_PRINCIPAL, tripId, r.value.expense.id, 3, { rate: "abc" });
+    expect(!bad.ok && bad.error.message).toBe("Escribe la tasa como un número, por ejemplo 3.900");
+  });
+});
+
 describe("Read-only summary link", () => {
   it("shows totals and who pays whom to whoever has the link, until it's turned off", async () => {
     const { c, tripId, seat } = await setup();

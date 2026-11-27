@@ -7,6 +7,8 @@ export interface PendingExpenseInput {
   amount: number;
   currency: string;
   cardCharge: number | null;
+  /** A rate typed by hand ("62"), when there's no card charge. */
+  rate?: string | null;
   category: string;
   title?: string;
   payerSeatId: string;

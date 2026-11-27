@@ -1,5 +1,6 @@
 import type { Clock } from "@/shared-kernel/clock";
 import { conflict, forbidden, invalidState, notFound, validationError } from "@/shared-kernel/errors";
+import { FxRate } from "@/shared-kernel/money/fx-rate";
 import { isCurrencyCode } from "@/shared-kernel/money/currency";
 import { ExpenseId, SplitGroupId, type IdGenerator, type PrincipalId, type SeatId, type TripId } from "@/shared-kernel/ids";
 import { attempt, type Result } from "@/shared-kernel/result";
@@ -30,6 +31,16 @@ import type {
   ReceiptStore,
   SplitGroupRepository,
 } from "./ports";
+
+/** A rate typed by hand: a positive decimal string ("3900", "59.5"), checked before it reaches the domain. */
+function manualRate(rate: string): string {
+  try {
+    FxRate.parse(rate);
+    return rate;
+  } catch {
+    throw validationError("Escribe la tasa como un número, por ejemplo 3.900");
+  }
+}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -340,7 +351,8 @@ export class ExpenseLedgerUseCases {
     tripId: TripId,
     expenseId: ExpenseId,
     expectedVersion: number,
-    input: { cardCharge?: number | null },
+    /** What the card charged, a rate typed by hand (cash exchanged), or neither: look it up again. */
+    input: { cardCharge?: number | null; rate?: string | null },
   ): Promise<Result<ExpenseDTO>> {
     return attempt(async () => {
       const ctx = await this.context(principalId, tripId);
@@ -350,7 +362,9 @@ export class ExpenseLedgerUseCases {
       const fx: FxInput | undefined =
         input.cardCharge != null
           ? { kind: "card_charge", baseAmount: input.cardCharge }
-          : await this.fetchFx(m.currency, ctx.trip.baseCurrency, expense.occurredAt);
+          : input.rate != null
+            ? { kind: "rate", rate: manualRate(input.rate), source: "manual" }
+            : await this.fetchFx(m.currency, ctx.trip.baseCurrency, expense.occurredAt);
       if (!fx) throw invalidState("No pudimos traer la tasa. Escribe lo que cobró la tarjeta.");
       const effect = expense.effect;
       expense.changeMoney(expectedVersion, { currency: m.currency, amount: m.amount, fx }, ctx);
@@ -383,6 +397,7 @@ export class ExpenseLedgerUseCases {
         if (already) return { expense: already, warnings: [] };
       }
       assertReceiptPaths(input.receiptPaths ?? [], tripId);
+      if (input.fx?.kind === "rate" && input.fx.source === "manual") manualRate(input.fx.rate);
       const fx = input.fx ?? (await this.fetchFx(input.currency, ctx.trip.baseCurrency, input.occurredAt ?? ctx.now));
       const id = ExpenseId(input.clientId ?? this.deps.ids.next());
       const expense = Expense.record({ ...input, fx, id }, ctx);

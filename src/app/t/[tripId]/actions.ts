@@ -30,6 +30,8 @@ export async function recordExpenseAction(input: {
   currency?: string;
   /** What the card charged, in the trip's currency; wins over any rate. */
   cardCharge?: number | null;
+  /** A rate typed by hand ("1 USD = 3900"), as a plain decimal string; wins over the day's rate. */
+  rate?: string | null;
   category: string;
   title?: string;
   payerSeatId: string;
@@ -51,8 +53,10 @@ export async function recordExpenseAction(input: {
       ? undefined
       : input.cardCharge != null
         ? { kind: "card_charge" as const, baseAmount: Number(input.cardCharge) }
-        : // The ledger asks the rate provider itself (cached per day, so it matches the preview).
-          undefined;
+        : input.rate
+          ? { kind: "rate" as const, rate: String(input.rate), source: "manual" as const }
+          : // The ledger asks the rate provider itself (cached per day, so it matches the preview).
+            undefined;
   const result = await c.ledger.recordExpense(principal, TripId(input.tripId), {
     currency,
     fx,
@@ -290,11 +294,13 @@ export async function setExpenseRateAction(input: {
   expenseId: string;
   expectedVersion: number;
   cardCharge: number | null;
+  rate?: string | null;
 }): Promise<{ ok: true } | { ok: false; message: string }> {
   const { id: principal } = await requirePrincipal();
   const c = await getContainer();
   const r = await c.ledger.setExpenseRate(principal, TripId(input.tripId), ExpenseId(String(input.expenseId)), Number(input.expectedVersion), {
     cardCharge: input.cardCharge == null ? null : Number(input.cardCharge),
+    rate: input.rate ? String(input.rate) : null,
   });
   if (!r.ok) {
     if (r.error.code === "conflict") return { ok: false, message: "Alguien editó este gasto mientras tanto. Recarga para ver lo último." };
