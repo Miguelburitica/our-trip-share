@@ -109,7 +109,7 @@ export function TransferRow(props: {
         aria-label={collecting ? `Cobrarle a ${names[t.from]}` : `Pagarle a ${names[t.to]}`}
         onClick={(e) => e.target === e.currentTarget && dialog.current?.close()}
         onClose={() => setSession((n) => n + 1)}
-        className="m-0 mx-auto mt-auto w-full max-w-[480px] rounded-t-[32px] bg-bg p-0 text-ink backdrop:bg-[rgba(43,36,32,.4)]"
+        className="m-0 mx-auto mt-auto w-full max-w-[480px] rounded-t-[32px] bg-bg p-0 text-ink backdrop:bg-[rgba(14,31,58,.4)]"
       >
         <SheetBody key={session} {...props} collecting={collecting} close={() => dialog.current?.close()} />
       </dialog>

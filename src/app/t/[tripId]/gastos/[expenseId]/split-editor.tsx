@@ -74,7 +74,7 @@ export function SplitEditor(props: {
         ref={dialog}
         aria-label="Editar reparto"
         onClick={(e) => e.target === e.currentTarget && dialog.current?.close()}
-        className="m-0 mx-auto mt-auto max-h-[92dvh] w-full max-w-[480px] rounded-t-[32px] bg-bg p-0 text-ink backdrop:bg-[rgba(43,36,32,.4)]"
+        className="m-0 mx-auto mt-auto max-h-[92dvh] w-full max-w-[480px] rounded-t-[32px] bg-bg p-0 text-ink backdrop:bg-[rgba(14,31,58,.4)]"
       >
         <div className="flex flex-col gap-4 px-5 pt-3 pb-8">
           <span aria-hidden="true" className="mx-auto h-1.5 w-10 rounded-full bg-tint-2" />

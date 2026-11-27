@@ -2,21 +2,23 @@
 
 /* Tonal design system — docs/DESIGN.md */
 @theme {
-  --color-bg: #fbf7f3;
+  /* Blue scale: cool neutrals, navy ink, one cobalt accent. */
+  --color-bg: #f4f7fb;
   --color-surface: #ffffff;
-  --color-tint: #f3ece4;
-  --color-tint-2: #eae1d6;
-  --color-ink: #2b2420;
-  --color-ink-2: #4a3f38;
-  --color-muted: #75655a;
-  --color-accent: #c24e2a;
-  --color-accent-soft: #f6e3da;
-  --color-accent-text: #9a3e1f;
-  --color-dashed: #cdbfb1;
-  --color-nav-idle: #bfb2a6;
+  --color-tint: #e7eef7;
+  --color-tint-2: #d6e1ef;
+  --color-ink: #0e1f3a;
+  --color-ink-2: #233a5e;
+  --color-muted: #52637e;
+  --color-accent: #1d5bd6;
+  --color-accent-soft: #dfe9fb;
+  --color-accent-text: #1946a8;
+  --color-dashed: #b4c3d8;
+  --color-nav-idle: #93a6c2;
+  --color-placeholder: #a7b6cb;
 
   --font-sans: var(--font-figtree), ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --shadow-card: 0 1px 2px rgba(43, 36, 32, 0.05);
+  --shadow-card: 0 1px 2px rgba(14, 31, 58, 0.06);
 }
 
 html {

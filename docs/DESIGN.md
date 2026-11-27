@@ -4,7 +4,7 @@ Approved direction for the app UI. Canvas: https://claude.ai/artifact/Y2cDBED2JY
 
 ## Principles
 1. **Air over density.** One big number, one primary action, and at most one pending item per screen. Everything else is summarized ("y 2 más").
-2. **Few colors.** Warm neutrals + ink + a single coral accent. Hue is never the only signal: labels say "Te deben" / "Debes".
+2. **Few colors.** Cool blue-tinted neutrals + navy ink + a single cobalt accent. Hue is never the only signal: labels say "Te deben" / "Debes".
 3. **No borders.** Separation comes from tonal surfaces (sand vs white) and spacing, not lines.
 4. **Lists show *my share*.** One amount per row. Totals, icons and badges only when they carry meaning.
 5. **Rounded and soft.** Pills for actions, 22–32px radii for surfaces.
@@ -13,17 +13,20 @@ Approved direction for the app UI. Canvas: https://claude.ai/artifact/Y2cDBED2JY
 
 | Token | Value | Use |
 |---|---|---|
-| `bg` | `#FBF7F3` | App background |
-| `surface` | `#FFFFFF` | Cards, lists (shadow `0 1px 2px rgba(43,36,32,.05)`) |
-| `tint` | `#F3ECE4` | Hero card, secondary buttons, inputs, chips, my highlighted row |
-| `tint-2` | `#EAE1D6` | Other people's avatars, disabled |
-| `ink` | `#2B2420` | Text, selected states, my avatar, tab bar, positive balance |
-| `ink-2` | `#4A3F38` | Active tab background |
-| `muted` | `#75655A` | Secondary text (≥4.5:1 on bg and tint) |
-| `accent` | `#C24E2A` | Primary CTA only (+, Guardar, Cobrar, Enviar, Entrar), negative balance bars |
-| `accent-soft` | `#F6E3DA` | Attention chips (Sin monto), selected preset |
-| `accent-text` | `#9A3E1F` | "Debes" amounts, warnings, text on accent-soft |
-| `dashed` | `#CDBFB1` | Unclaimed seat / excluded person outline |
+| `bg` | `#F4F7FB` | App background |
+| `surface` | `#FFFFFF` | Cards, lists (shadow `0 1px 2px rgba(14,31,58,.06)`) |
+| `tint` | `#E7EEF7` | Hero card, secondary buttons, inputs, chips, my highlighted row |
+| `tint-2` | `#D6E1EF` | Other people's avatars, disabled |
+| `ink` | `#0E1F3A` | Text, selected states, my avatar, tab bar, positive balance |
+| `ink-2` | `#233A5E` | Active tab background |
+| `muted` | `#52637E` | Secondary text (≥4.5:1 on bg and tint) |
+| `accent` | `#1D5BD6` | Primary CTA only (+, Guardar, Cobrar, Enviar, Entrar), negative balance bars |
+| `accent-soft` | `#DFE9FB` | Attention chips (Sin monto), selected preset |
+| `accent-text` | `#1946A8` | "Debes" amounts, warnings, text on accent-soft |
+| `dashed` | `#B4C3D8` | Unclaimed seat / excluded person outline |
+
+## Logo
+A trip pin split in two shares (left `#3D74E6`, right white) on a navy (`ink`) rounded tile. Source: `src/app/icon.svg`; React: `src/app/ui/logo.tsx`; PWA icons in `public/icons/` (the maskable one is full-bleed).
 
 ## Type
 - **Figtree** (Google Fonts), weights 400/500/600/700, with system-ui fallback.

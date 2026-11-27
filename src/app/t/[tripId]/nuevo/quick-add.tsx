@@ -268,7 +268,7 @@ export function QuickAdd(props: {
       </header>
 
       <div className="flex flex-col items-center gap-1.5 py-2 [@media(max-height:860px)]:py-0">
-        <output aria-live="polite" className={`tabular text-[54px] leading-tight [@media(max-height:860px)]:text-[44px] font-bold tracking-tight ${amount ? "" : "text-[#b3a496]"}`}>
+        <output aria-live="polite" className={`tabular text-[54px] leading-tight [@media(max-height:860px)]:text-[44px] font-bold tracking-tight ${amount ? "" : "text-placeholder"}`}>
           {fmt(amount, cur)}
         </output>
         {foreign && (

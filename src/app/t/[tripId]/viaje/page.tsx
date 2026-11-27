@@ -34,7 +34,7 @@ export default async function Viaje({
     .map((s) => ({ seatId: s.id as string, name: s.displayName, isNew: s.createdBy === null, since: when.format(new Date(s.pendingSince!)) }));
   const joinUrl = real && trip.joinToken ? `${await requestOrigin()}/u/${trip.id}/${trip.joinToken}` : null;
   const qrSvg = joinUrl
-    ? await QRCode.toString(joinUrl, { type: "svg", margin: 1, color: { dark: "#2B2420", light: "#00000000" } })
+    ? await QRCode.toString(joinUrl, { type: "svg", margin: 1, color: { dark: "#0E1F3A", light: "#00000000" } })
     : null;
 
   return (

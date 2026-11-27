@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { currentPrincipal } from "@/composition/auth";
 import { backend, getContainer, getDemoTripId } from "@/composition/server";
+import { Logo } from "./ui/logo";
 import { ui } from "./ui/styles";
 
 /** Decides where to go from the session, so it blocks on purpose. */
@@ -22,7 +23,7 @@ export default async function Home() {
   return (
     <main className={`${ui.page} justify-between`}>
       <div className="flex flex-1 flex-col justify-center gap-4 px-1">
-        <p className="text-[15px] font-semibold text-accent-text">Our Share</p>
+        <Logo />
         <h1 className="text-[40px] leading-[1.05] font-bold tracking-tight">Las cuentas del viaje, claras para todos.</h1>
         <p className="text-[17px] text-muted">Cada quien anota lo que paga. Al final, la app dice quién le paga a quién.</p>
       </div>
