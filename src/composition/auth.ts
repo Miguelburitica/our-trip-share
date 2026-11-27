@@ -32,8 +32,17 @@ export async function requirePrincipal(next?: string): Promise<Principal> {
 /** For actions that must not hit a wall (create a trip, open a personal link): a guest session if needed. */
 export async function ensurePrincipal(): Promise<Principal> {
   const existing = await currentPrincipal();
-  if (existing) return existing;
   const supabase = await authClient();
+  if (existing) {
+    if (backend() === "memory") return existing;
+    // The token only proves who it was issued to. Its user may be gone since (an abandoned guest
+    // cleaned up at night): then start over as a new guest instead of failing on every write.
+    const { data, error } = await supabase.auth.getUser();
+    if (data.user) return existing;
+    const gone = error?.code === "user_not_found" || error?.status === 401 || error?.status === 403;
+    if (!gone) throw new Error(`Session check failed: ${error?.message ?? "no user"}`);
+    await supabase.auth.signOut({ scope: "local" });
+  }
   const { data, error } = await supabase.auth.signInAnonymously();
   if (error || !data.user) throw new Error(`Guest sign-in failed: ${error?.message ?? "no user"}`);
   return { id: PrincipalId(data.user.id), kind: "guest" };

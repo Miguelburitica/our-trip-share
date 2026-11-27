@@ -17,17 +17,24 @@ const parsePeople = (raw: string) =>
 /** No wall: creating a trip without a session makes you a guest on this device (spec 6.1). */
 export async function createTripAction(_prev: CreateTripState, form: FormData): Promise<CreateTripState> {
   const text = (key: string) => String(form.get(key) ?? "").trim();
-  const principal = await ensurePrincipal();
-  const c = await getContainer();
-  const result = await c.membership.createTrip({
-    principal,
-    name: text("name"),
-    displayName: text("displayName"),
-    baseCurrency: text("currency") || "COP",
-    startDate: text("startDate") || null,
-    endDate: text("endDate") || null,
-    people: parsePeople(text("people")),
-  });
+  let result;
+  try {
+    const principal = await ensurePrincipal();
+    const c = await getContainer();
+    result = await c.membership.createTrip({
+      principal,
+      name: text("name"),
+      displayName: text("displayName"),
+      baseCurrency: text("currency") || "COP",
+      startDate: text("startDate") || null,
+      endDate: text("endDate") || null,
+      people: parsePeople(text("people")),
+    });
+  } catch (error) {
+    // Infrastructure trouble (database, auth): a message on the form, not a broken page.
+    console.error("create trip failed", error);
+    return { message: "No pudimos crear el viaje. Intenta de nuevo en un momento." };
+  }
   if (!result.ok) return { message: result.error.message || ERROR_COPY[result.error.code] };
   redirect(`/t/${result.value.id}/viaje?nuevo=1`);
 }
