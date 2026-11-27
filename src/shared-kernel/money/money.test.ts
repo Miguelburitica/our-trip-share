@@ -21,6 +21,7 @@ describe("integer currency units", () => {
   it("formats es-CO pesos", () => {
     expect(formatMoney(184000, "COP")).toBe("$184.000");
     expect(formatMoney(-641000, "COP")).toBe("−$641.000");
+    expect(formatMoney(150050, "DOP")).toBe("RD$1.500,50");
   });
   it("applies dust tolerance per currency", () => {
     expect(isWithinDust(-40, "COP")).toBe(true);

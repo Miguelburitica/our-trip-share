@@ -28,6 +28,8 @@ export function isWithinDust(units: number, code: CurrencyCode): boolean {
   return Math.abs(units) < CURRENCIES[code].dustTolerance;
 }
 
+const SYMBOLS: Partial<Record<CurrencyCode, string>> = { COP: "$", USD: "US$", DOP: "RD$" };
+
 /** "$184.000" in es-CO, "US$100.00" style for others. Presentation helper kept here so every screen agrees. */
 export function formatMoney(units: number, code: CurrencyCode, locale = "es-CO"): string {
   const { exponent } = CURRENCIES[code];
@@ -37,6 +39,6 @@ export function formatMoney(units: number, code: CurrencyCode, locale = "es-CO")
     maximumFractionDigits: exponent,
   }).format(Math.abs(value));
   const sign = units < 0 ? "−" : "";
-  const symbol = code === "COP" ? "$" : code === "USD" ? "US$" : `${code} `;
+  const symbol = SYMBOLS[code] ?? `${code} `;
   return `${sign}${symbol}${formatted}`;
 }

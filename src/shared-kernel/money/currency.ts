@@ -17,6 +17,7 @@ export const CURRENCIES = {
   MXN: { code: "MXN", exponent: 2, isoExponent: 2, dustTolerance: 100 },
   BRL: { code: "BRL", exponent: 2, isoExponent: 2, dustTolerance: 25 },
   PEN: { code: "PEN", exponent: 2, isoExponent: 2, dustTolerance: 20 },
+  DOP: { code: "DOP", exponent: 2, isoExponent: 2, dustTolerance: 100 },
   JPY: { code: "JPY", exponent: 0, isoExponent: 0, dustTolerance: 10 },
   KWD: { code: "KWD", exponent: 3, isoExponent: 3, dustTolerance: 15 },
 } as const satisfies Record<string, CurrencyInfo>;

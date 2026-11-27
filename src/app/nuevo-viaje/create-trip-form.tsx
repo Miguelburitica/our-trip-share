@@ -11,6 +11,7 @@ const CURRENCIES = [
   ["MXN", "Peso mexicano"],
   ["BRL", "Real"],
   ["PEN", "Sol"],
+  ["DOP", "Peso dominicano"],
 ] as const;
 
 export function CreateTripForm() {
