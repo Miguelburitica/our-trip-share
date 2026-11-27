@@ -31,6 +31,8 @@ import type {
   SplitGroupRepository,
 } from "./ports";
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export interface ExpenseLedgerDeps {
   expenses: ExpenseRepository;
   splitGroups: SplitGroupRepository;
@@ -366,17 +368,39 @@ export class ExpenseLedgerUseCases {
       title?: string | null;
       occurredAt?: Date;
       receiptPaths?: string[];
+      /**
+       * Set by a phone that saved the expense offline: retrying with the same id never records it
+       * twice (the first copy is returned instead).
+       */
+      clientId?: string;
     },
   ): Promise<Result<{ expense: ExpenseDTO; warnings: ExpenseWarning[] }>> {
     return attempt(async () => {
       const ctx = await this.context(principalId, tripId);
+      if (input.clientId !== undefined) {
+        if (!UUID.test(input.clientId)) throw validationError("Identificador de gasto inválido");
+        const already = await this.alreadyRecorded(tripId, ExpenseId(input.clientId), ctx);
+        if (already) return { expense: already, warnings: [] };
+      }
       assertReceiptPaths(input.receiptPaths ?? [], tripId);
       const fx = input.fx ?? (await this.fetchFx(input.currency, ctx.trip.baseCurrency, input.occurredAt ?? ctx.now));
-      const expense = Expense.record({ ...input, fx, id: ExpenseId(this.deps.ids.next()) }, ctx);
+      const id = ExpenseId(input.clientId ?? this.deps.ids.next());
+      const expense = Expense.record({ ...input, fx, id }, ctx);
       const others = await this.deps.expenses.listByTrip(tripId);
       const held = await this.commit("created", expense, ctx, null, null);
       return { expense: { ...toExpenseDTO(expense, ctx.actor), held }, warnings: evaluateGuards(expense, others) };
     });
+  }
+
+  /** A retried offline save: the expense as already recorded (or waiting for approval), if any. */
+  private async alreadyRecorded(tripId: TripId, id: ExpenseId, ctx: Context): Promise<ExpenseDTO | null> {
+    const stored = await this.deps.expenses.get(id);
+    if (stored) {
+      if (stored.tripId !== tripId) throw validationError("Identificador de gasto inválido");
+      return { ...toExpenseDTO(stored, ctx.actor), held: false };
+    }
+    const waiting = (await this.deps.held?.list(tripId))?.find((h) => h.expenseId === id && h.kind === "created");
+    return waiting ? { ...toExpenseDTO(Expense.fromPrimitives(waiting.proposed), ctx.actor), held: true } : null;
   }
 
   snapReceiptDraft(principalId: PrincipalId, tripId: TripId, receiptPath: string): Promise<Result<ExpenseDTO>> {
@@ -472,6 +496,16 @@ export class ExpenseLedgerUseCases {
       ]);
       if (!reader) return { receiptPath, read: false, amount: null, currency: null, title: null, category: null, note: null };
       return { receiptPath, read: reading !== null, ...prefillFromReading(reading, ctx.trip.baseCurrency) };
+    });
+  }
+
+  /** A photo saved offline, uploaded later: stored (compressed) without reading it. */
+  uploadReceipt(principalId: PrincipalId, tripId: TripId, image: ReceiptImage): Promise<Result<{ receiptPath: string }>> {
+    return attempt(async () => {
+      const ctx = await this.context(principalId, tripId);
+      if (ctx.trip.status === "closed") throw invalidState("El viaje está cerrado");
+      assertReceiptImage(image);
+      return { receiptPath: await this.storeReceipt(tripId, image) };
     });
   }
 

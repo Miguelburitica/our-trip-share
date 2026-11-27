@@ -1,4 +1,6 @@
+import { Suspense } from "react";
 import Link from "next/link";
+import { PendingExpenses } from "@/app/offline/pending-list";
 import { dayKey, dayLabel, expenseTitle, fmt } from "@/app/ui/money";
 import { loadTrip } from "../data";
 
@@ -34,6 +36,10 @@ export default async function Gastos({
           Tu parte {fmt(myTotal, trip.baseCurrency)} de {fmt(tripTotal, trip.baseCurrency)}
         </p>
       </header>
+
+      <Suspense fallback={null}>
+        <PendingExpenses />
+      </Suspense>
 
       <nav aria-label="Mostrar" className="flex items-center gap-2">
         <Link href={base} aria-current={!showAll ? "page" : undefined} className={`flex min-h-10 items-center rounded-full px-4.5 text-sm font-semibold ${!showAll ? "bg-ink text-bg" : "bg-tint"}`}>

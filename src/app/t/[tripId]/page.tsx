@@ -1,4 +1,6 @@
+import { Suspense } from "react";
 import Link from "next/link";
+import { PendingExpenses } from "@/app/offline/pending-list";
 import { dayKey, expenseTitle, fmt } from "@/app/ui/money";
 import type { NoticeDTO } from "@/contexts/settlement/application/use-cases";
 import { dismissNoticeAction } from "./actions";
@@ -50,6 +52,10 @@ export default async function Inicio({ params }: { params: Promise<{ tripId: str
           {[`${trip.seats.filter((s) => !s.awaitingApproval).length} personas`, PHASE[trip.status]].filter(Boolean).join(" · ")}
         </p>
       </header>
+
+      <Suspense fallback={null}>
+        <PendingExpenses />
+      </Suspense>
 
       {reviewing && (
         <ReviewCard

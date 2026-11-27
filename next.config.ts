@@ -8,6 +8,19 @@ const nextConfig: NextConfig = {
     // Receipt photos are downscaled on the phone, but leave room for a 4MB original plus multipart overhead.
     serverActions: { bodySizeLimit: "5mb" },
   },
+  async headers() {
+    return [
+      {
+        // The service worker must never be cached, so a deploy reaches phones right away.
+        source: "/sw.js",
+        headers: [
+          { key: "Content-Type", value: "application/javascript; charset=utf-8" },
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+          { key: "Content-Security-Policy", value: "default-src 'self'; script-src 'self'" },
+        ],
+      },
+    ];
+  },
   turbopack: {
     rules: {
       "*.css": {

@@ -1,9 +1,9 @@
 import Link from "next/link";
+import { SignOutButton } from "@/app/offline/sign-out-button";
 import QRCode from "qrcode";
 import { requestOrigin } from "@/app/ui/origin";
 import { backend } from "@/composition/server";
 import { loadTrip } from "../data";
-import { signOutAction } from "../actions";
 import { ClaimRequests } from "./claim-requests";
 import { HandlesForm } from "./handles-form";
 import { InviteButton } from "./invite-button";
@@ -133,11 +133,7 @@ export default async function Viaje({
             Mis viajes
           </Link>
           {!isGuest && (
-            <form action={signOutAction}>
-              <button type="submit" className="text-[15px] text-muted">
-                Cerrar sesión
-              </button>
-            </form>
+            <SignOutButton />
           )}
         </nav>
       )}

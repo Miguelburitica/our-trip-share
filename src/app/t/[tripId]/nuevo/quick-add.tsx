@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { fmt, parseAmount } from "@/app/ui/money";
 import { CURRENCIES, isCurrencyCode } from "@/shared-kernel/money/currency";
 import { FxRate } from "@/shared-kernel/money/fx-rate";
+import { queueExpense, syncPending, withTimeout } from "@/app/offline/client";
 import { deleteSplitGroupAction, quoteRateAction, recordExpenseAction, saveSplitGroupAction, scanReceiptAction } from "../actions";
 
 const CATEGORIES = [
@@ -91,10 +92,11 @@ export function QuickAdd(props: {
   const [groups, setGroups] = useState<Group[]>(props.presets.groups);
   const [naming, setNaming] = useState<string | null>(null);
   const [groupError, setGroupError] = useState<string | null>(null);
-  const [receipt, setReceipt] = useState<{ path: string; title: string | null; note: string | null } | null>(null);
+  // `photo` is set when it was taken without signal: it stays on the phone and goes up with the expense.
+  const [receipt, setReceipt] = useState<{ path: string | null; photo?: Blob; title: string | null; note: string | null } | null>(null);
   const [scanning, setScanning] = useState(false);
   const photoInput = useRef<HTMLInputElement>(null);
-  const [status, setStatus] = useState<null | { kind: "saved"; warnings: string[]; held?: boolean; paidBy?: string } | { kind: "error"; message: string }>(null);
+  const [status, setStatus] = useState<null | { kind: "saved"; warnings: string[]; held?: boolean; paidBy?: string } | { kind: "queued" } | { kind: "error"; message: string }>(null);
   const [pending, startTransition] = useTransition();
 
   const foreign = cur !== props.currency;
@@ -166,11 +168,19 @@ export function QuickAdd(props: {
   const scan = async (file: File) => {
     setStatus(null);
     setScanning(true);
+    const photo = await shrinkPhoto(file);
+    const keepOnPhone = () =>
+      setReceipt({ path: null, photo, title: null, note: "Sin señal: la foto se sube con el gasto. Escribe el monto." });
+    if (!navigator.onLine) {
+      keepOnPhone();
+      setScanning(false);
+      return;
+    }
     try {
       const form = new FormData();
       form.set("tripId", props.tripId);
-      form.set("photo", await shrinkPhoto(file));
-      const r = await scanReceiptAction(form);
+      form.set("photo", photo);
+      const r = await withTimeout(scanReceiptAction(form), 20_000);
       if (!r.ok) {
         setStatus({ kind: "error", message: r.message });
         return;
@@ -186,7 +196,8 @@ export function QuickAdd(props: {
       }
       if (r.category) setCategory(r.category);
     } catch {
-      setStatus({ kind: "error", message: "No se pudo subir la foto. Intenta de nuevo." });
+      // No answer: keep the photo here; it goes up with the expense when there's signal.
+      keepOnPhone();
     } finally {
       setScanning(false);
     }
@@ -214,10 +225,18 @@ export function QuickAdd(props: {
     });
   const chip = (on: boolean) => `min-h-[38px] flex-none rounded-full px-3.5 text-[13px] font-semibold ${on ? "bg-ink text-bg" : "bg-tint"}`;
 
+  const clear = () => {
+    setDigits("");
+    setReceipt(null);
+    setCardCharge(null);
+  };
+
   const save = () =>
     startTransition(async () => {
-      const result = await recordExpenseAction({
-        tripId: props.tripId,
+      // The phone names the expense, so saving it again (offline retries) never duplicates it.
+      const clientId = crypto.randomUUID();
+      const createdAt = new Date().toISOString();
+      const input = {
         amount,
         currency: cur,
         cardCharge: foreign ? charged : null,
@@ -225,13 +244,35 @@ export function QuickAdd(props: {
         payerSeatId: payer.id,
         participantIds: selected,
         title: receipt?.title ?? undefined,
-        receiptPath: receipt?.path ?? null,
-      });
+      };
+      const what = receipt?.title ?? CATEGORIES.find(([id]) => id === category)?.[1] ?? "Otro";
+      const queue = async () => {
+        await queueExpense({
+          id: clientId,
+          tripId: props.tripId,
+          createdAt,
+          input,
+          photo: receipt?.photo ?? null,
+          receiptPath: receipt?.path ?? null,
+          label: `${what} · ${fmt(amount, cur)}${payer.id === props.mySeatId ? "" : ` · pagó ${potPays ? "la vaca" : payer.name}`}`,
+        });
+        setStatus({ kind: "queued" });
+        clear();
+        // With signal but a photo still on the phone: send it all now.
+        if (navigator.onLine) void syncPending();
+      };
+      if (!navigator.onLine || receipt?.photo) return queue();
+      let result;
+      try {
+        result = await withTimeout(
+          recordExpenseAction({ tripId: props.tripId, ...input, receiptPath: receipt?.path ?? null, clientId, occurredAt: createdAt }),
+        );
+      } catch {
+        return queue();
+      }
       if (result.ok) {
         setStatus({ kind: "saved", warnings: result.warnings, held: result.held, paidBy: payer.id === props.mySeatId ? undefined : potPays ? "la vaca" : payer.name });
-        setDigits("");
-        setReceipt(null);
-        setCardCharge(null);
+        clear();
       } else {
         setStatus({ kind: "error", message: result.message });
       }
@@ -515,9 +556,15 @@ export function QuickAdd(props: {
         ))}
       </div>
 
-      {status?.kind === "saved" ? (
+      {status?.kind === "saved" || status?.kind === "queued" ? (
         <div role="status" className="flex min-h-14 items-center justify-between gap-2.5 rounded-full bg-ink py-1.5 pr-1.5 pl-5.5 text-bg">
-          <span className="text-[15px] font-medium">{status.held ? "Falta que lo apruebe un admin" : status.paidBy ? `Guardado · pagó ${status.paidBy}` : "Guardado"}</span>
+          <span className="text-[15px] font-medium">{status.kind === "queued"
+              ? "Guardado en el teléfono · sube con señal"
+              : status.held
+                ? "Falta que lo apruebe un admin"
+                : status.paidBy
+                  ? `Guardado · pagó ${status.paidBy}`
+                  : "Guardado"}</span>
           <Link href={`/t/${props.tripId}/gastos`} className="flex min-h-11 items-center rounded-full bg-ink-2 px-4.5 text-sm font-semibold">
             Ver gastos
           </Link>

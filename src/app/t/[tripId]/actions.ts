@@ -33,6 +33,9 @@ export async function recordExpenseAction(input: {
   payerSeatId: string;
   participantIds: string[];
   receiptPath?: string | null;
+  /** Saved offline: the phone's id for it (retries never duplicate) and when it was recorded. */
+  clientId?: string;
+  occurredAt?: string;
 }): Promise<ActionResult> {
   const { id: principal } = await requirePrincipal();
   const c = await getContainer();
@@ -57,6 +60,8 @@ export async function recordExpenseAction(input: {
     payers: [{ seatId: SeatId(String(input.payerSeatId)) }],
     split: { method: "equal", participants: (input.participantIds ?? []).map((id) => SeatId(String(id))) },
     receiptPaths: input.receiptPath ? [String(input.receiptPath)] : [],
+    clientId: input.clientId ? String(input.clientId) : undefined,
+    occurredAt: recordedAt(input.occurredAt),
   });
   if (!result.ok) return { ok: false, message: result.error.message || COPY[result.error.code] };
   revalidatePath(`/t/${input.tripId}`, "layout");
@@ -147,6 +152,28 @@ export async function scanReceiptAction(formData: FormData): Promise<ScanResult>
   if (!r.ok) return { ok: false, message: r.error.message || COPY[r.error.code] };
   const { receiptPath, read, amount, currency, title, category, note } = r.value;
   return { ok: true, receiptPath, read, amount, currency, title, category, note };
+}
+
+/** A receipt photo kept on the phone while offline, uploaded when the signal returns (not read). */
+export async function uploadReceiptAction(formData: FormData): Promise<{ ok: true; receiptPath: string } | { ok: false; message: string }> {
+  const { id: principal } = await requirePrincipal();
+  const tripId = String(formData.get("tripId") ?? "");
+  const photo = formData.get("photo");
+  if (!(photo instanceof File)) return { ok: false, message: "Elige una foto" };
+  const c = await getContainer();
+  const r = await c.ledger.uploadReceipt(principal, TripId(tripId), {
+    bytes: new Uint8Array(await photo.arrayBuffer()),
+    mediaType: photo.type as "image/jpeg",
+  });
+  return r.ok ? { ok: true, receiptPath: r.value.receiptPath } : { ok: false, message: r.error.message || COPY[r.error.code] };
+}
+
+/** When an offline expense was recorded: a real past moment (not the future, not over a year ago), else now. */
+function recordedAt(iso: string | undefined): Date | undefined {
+  if (!iso) return undefined;
+  const at = new Date(String(iso));
+  const now = Date.now();
+  return Number.isNaN(at.getTime()) || at.getTime() > now + 5 * 60_000 || at.getTime() < now - 366 * 86_400_000 ? undefined : at;
 }
 
 export type GroupResult = { ok: true; group: { id: string; name: string; seatIds: string[]; canDelete: boolean } } | { ok: false; message: string };

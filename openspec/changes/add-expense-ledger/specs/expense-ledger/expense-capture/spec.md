@@ -99,3 +99,19 @@ While a trip is Liquidando, a money change (new, edited or deleted expense) by a
 #### Scenario: The expense changed in the meantime
 - **WHEN** Juli's edit is waiting and an admin edits the same expense first
 - **THEN** approving Juli's edit fails and it is dropped
+
+### Requirement: Recording without signal
+Quick add SHALL save an expense (and its receipt photo) on the phone when there is no connection, and SHALL send it when the connection returns, on the date it was recorded. Each expense SHALL carry an id generated on the phone so that sending it again never records it twice. What the server rejects SHALL stay on the phone with the reason until the person discards it.
+
+#### Scenario: Toll at the beach without signal
+- **WHEN** Juli records a $12.000 meal with no connection and the signal returns an hour later
+- **THEN** quick add says "Guardado en el teléfono · sube con señal", Gastos shows "1 gasto espera señal" meanwhile, and once back online the expense is recorded once, dated when Juli saved it
+
+#### Scenario: Retried after a dropped answer
+- **WHEN** the phone sends the same offline expense twice because the first answer never arrived
+- **THEN** only one expense exists and the second send returns it
+
+#### Scenario: Photo taken offline
+- **WHEN** Juli snaps a receipt without signal and saves the expense
+- **THEN** the photo waits on the phone, is uploaded (not read) before the expense when the signal returns, and is attached to it
+

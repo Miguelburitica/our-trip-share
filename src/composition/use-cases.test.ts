@@ -706,3 +706,57 @@ describe("Concurrent trip writes", () => {
     expect(!added.ok && added.error.code).toBe("conflict");
   });
 });
+
+describe("Expenses saved offline", () => {
+  const id = "3f1c2a9e-8b4d-4c6e-9a7f-1e2d3c4b5a69";
+
+  it("records a retried expense once, on the date it was taken", async () => {
+    const { c, tripId, seat } = await setup();
+    const input = {
+      currency: "COP",
+      amount: 18_000,
+      title: "Peaje",
+      payers: [{ seatId: seat("Leo") }],
+      split: { method: "equal" as const, participants: [seat("Mateo"), seat("Leo")] },
+      occurredAt: new Date("2026-11-22T09:15:00-05:00"),
+      clientId: id,
+    };
+    const first = await c.ledger.recordExpense(DEMO_PRINCIPAL, tripId, input);
+    const again = await c.ledger.recordExpense(DEMO_PRINCIPAL, tripId, input);
+    if (!first.ok || !again.ok) throw new Error("not saved");
+    expect(first.value.expense.id).toBe(id);
+    expect(again.value.expense).toEqual(first.value.expense);
+    const all = await c.ledger.listTripExpenses(DEMO_PRINCIPAL, tripId);
+    expect(all.ok && all.value.filter((e) => e.id === id)).toHaveLength(1);
+    expect(first.value.expense.occurredAt).toBe(new Date("2026-11-22T09:15:00-05:00").toISOString());
+
+    const bad = await c.ledger.recordExpense(DEMO_PRINCIPAL, tripId, { ...input, clientId: "not-a-uuid" });
+    expect(!bad.ok && bad.error.code).toBe("validation");
+  });
+
+  it("doesn't duplicate a retried expense that is waiting for approval", async () => {
+    const { c, tripId, seat } = await setup();
+    const invite = await c.membership.issueInvite(DEMO_PRINCIPAL, tripId, seat("Juli"));
+    if (!invite.ok) throw invite.error;
+    const juli = PrincipalId("guest-juli");
+    await c.membership.claimWithInvite(tripId, invite.value.token, { id: juli, kind: "guest" });
+    await c.settlement.recordSettlement(DEMO_PRINCIPAL, tripId, { from: seat("Leo"), to: seat("Mateo"), amount: 653_000, method: "cash" });
+    await c.membership.startSettling(DEMO_PRINCIPAL, tripId);
+    const taxi = { currency: "COP", amount: 40_000, title: "Taxi", split: { method: "equal" as const, participants: [seat("Juli"), seat("Leo")] }, clientId: id };
+    const first = await c.ledger.recordExpense(juli, tripId, taxi);
+    const again = await c.ledger.recordExpense(juli, tripId, taxi);
+    expect(first.ok && first.value.expense.held).toBe(true);
+    expect(again.ok && again.value.expense).toMatchObject({ id, held: true });
+    const held = await c.ledger.listHeldChanges(juli, tripId);
+    expect(held.ok && held.value).toHaveLength(1);
+  });
+
+  it("uploads a photo taken offline without reading it", async () => {
+    let reads = 0;
+    const c = createMemoryContainer({ ids: sequentialIds("id"), reader: { read: async () => (reads++, null) } });
+    const tripId = await seedCartagena(c);
+    const up = await c.ledger.uploadReceipt(DEMO_PRINCIPAL, tripId, { bytes: new Uint8Array([1, 2, 3]), mediaType: "image/jpeg" });
+    expect(up.ok && up.value.receiptPath.startsWith(`${tripId}/`)).toBe(true);
+    expect(reads).toBe(0);
+  });
+});

@@ -176,6 +176,18 @@ describe.skipIf(!url || !secret)("Supabase repositories (local stack)", () => {
     expect(mine.value.find((n) => n.cause.title === "Peaje")).toMatchObject({ reason: "paid", paid: { before: 0, after: 18_000 }, delta: 9_000 });
   });
 
+  it("records an expense saved offline once, under the phone's id", async () => {
+    const clientId = crypto.randomUUID();
+    const input = { currency: "COP", amount: 7_000, title: "Peaje sin señal", clientId, occurredAt: new Date(Date.now() - 3_600_000) };
+    const first = await c.ledger.recordExpense(mateo.id, tripId, input);
+    const again = await c.ledger.recordExpense(mateo.id, tripId, input);
+    if (!first.ok) throw first.error;
+    if (!again.ok) throw again.error;
+    expect(again.value.expense.id).toBe(clientId);
+    const { count } = await db.from("expenses").select("id", { count: "exact", head: true }).eq("id", clientId);
+    expect(count).toBe(1);
+  });
+
   it("stores receipt photos privately and serves them through signed URLs", async () => {
     const scan = await c.ledger.scanReceipt(mateo.id, tripId, { bytes: new Uint8Array([0xff, 0xd8, 0xff]), mediaType: "image/jpeg" });
     if (!scan.ok) throw scan.error;
