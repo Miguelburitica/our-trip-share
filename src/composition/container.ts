@@ -3,6 +3,7 @@ import type {
   FxRateProvider,
   HeldChangeRepository,
   ReceiptReader,
+  ReceiptCompressor,
   ReceiptStore,
   SplitGroupRepository,
 } from "@/contexts/expense-ledger/application/ports";
@@ -72,6 +73,8 @@ export interface ContainerOptions {
   ids?: IdGenerator;
   /** Reads receipt photos; null/absent attaches photos without reading them. */
   reader?: ReceiptReader | null;
+  /** Shrinks the stored copy of receipt photos; null/absent stores them as uploaded. */
+  compressor?: ReceiptCompressor | null;
   /** Daily FX rates; null/absent leaves foreign-currency expenses "tasa pendiente". */
   rates?: FxRateProvider | null;
 }
@@ -115,6 +118,7 @@ export function createContainer(repos: Repositories, opts: ContainerOptions = {}
       splitGroups,
       receipts,
       reader: opts.reader ?? null,
+      compressor: opts.compressor ?? null,
       rates: opts.rates ?? null,
       held,
       reopenCheck: reopenCheck(settlement),

@@ -49,6 +49,14 @@ export interface ReceiptStore {
   signedUrl(path: string): Promise<string | null>;
 }
 
+/**
+ * Makes the copy of a receipt photo that is kept: small enough to store thousands, still readable
+ * line by line. The reader gets the photo as uploaded; only what's stored is shrunk.
+ */
+export interface ReceiptCompressor {
+  forStorage(image: ReceiptImage): Promise<ReceiptImage>;
+}
+
 /** Reads a receipt photo (a vision model). May be absent when not configured. */
 export interface ReceiptReader {
   read(image: ReceiptImage, hint: { baseCurrency: string }): Promise<ReceiptReading | null>;

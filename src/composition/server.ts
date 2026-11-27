@@ -1,5 +1,6 @@
 import "server-only";
 import { CurrencyApiRateProvider } from "@/contexts/expense-ledger/infrastructure/currency-api-rate-provider";
+import { SharpReceiptCompressor } from "@/contexts/expense-ledger/infrastructure/sharp-receipt-compressor";
 import { OpenRouterReceiptReader } from "@/contexts/expense-ledger/infrastructure/openrouter-receipt-reader";
 import { createSupabaseContainer, createMemoryContainer, type Container } from "./container";
 import { seedCartagena } from "./demo-seed";
@@ -25,11 +26,14 @@ const reader = () => {
   return apiKey ? new OpenRouterReceiptReader({ apiKey, model: process.env.OPENROUTER_RECEIPT_MODEL }) : null;
 };
 
+/** Stored receipt photos are shrunk to small WebP copies. */
+const compressor = new SharpReceiptCompressor();
+
 /** Daily FX rates; one instance so its per-day cache is shared. */
 const rates = new CurrencyApiRateProvider();
 
 async function buildMemory(): Promise<MemoryHolder> {
-  const container = createMemoryContainer({ reader: reader(), rates });
+  const container = createMemoryContainer({ reader: reader(), rates, compressor });
   const demoTripId = await seedCartagena(container);
   return { container, demoTripId };
 }
@@ -37,7 +41,7 @@ async function buildMemory(): Promise<MemoryHolder> {
 export async function getContainer(): Promise<Container> {
   if (backend() === "supabase") {
     // Repositories are stateless apart from per-aggregate versions held in WeakMaps, so one is enough.
-    dbContainer ??= createSupabaseContainer(serviceClient(), { reader: reader(), rates });
+    dbContainer ??= createSupabaseContainer(serviceClient(), { reader: reader(), rates, compressor });
     return dbContainer;
   }
   g.__ourShare ??= buildMemory();

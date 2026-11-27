@@ -25,6 +25,7 @@ import type {
   LedgerEventPublisher,
   ReopenCheck,
   MembershipReader,
+  ReceiptCompressor,
   ReceiptReader,
   ReceiptStore,
   SplitGroupRepository,
@@ -37,6 +38,8 @@ export interface ExpenseLedgerDeps {
   receipts: ReceiptStore;
   /** Optional: reads receipt photos; without it photos are attached but not read. */
   reader?: ReceiptReader | null;
+  /** Shrinks the stored copy of receipt photos; absent stores them as uploaded. */
+  compressor?: ReceiptCompressor | null;
   /** Optional: who hears about saved money changes. */
   events?: LedgerEventPublisher;
   /** Optional: daily FX rates; without it foreign-currency expenses wait for a rate ("tasa pendiente"). */
@@ -455,19 +458,31 @@ export class ExpenseLedgerUseCases {
       const ctx = await this.context(principalId, tripId);
       if (ctx.trip.status === "closed") throw invalidState("El viaje está cerrado");
       assertReceiptImage(image);
-      const receiptPath = await this.deps.receipts.put(tripId, this.deps.ids.next(), image);
-      if (!this.deps.reader) {
-        return { receiptPath, read: false, amount: null, currency: null, title: null, category: null, note: null };
-      }
-      let reading = null;
-      try {
-        reading = await this.deps.reader.read(image, { baseCurrency: ctx.trip.baseCurrency });
-      } catch (error) {
-        // The photo is already stored and stays attached; the person just types the amount.
-        console.error("receipt reader failed", error);
-      }
+      const reader = this.deps.reader;
+      // Reading uses the photo as uploaded; storing keeps a small copy. Both at once.
+      const [receiptPath, reading] = await Promise.all([
+        this.storeReceipt(tripId, image),
+        reader
+          ? reader.read(image, { baseCurrency: ctx.trip.baseCurrency }).catch((error) => {
+              // The photo is stored and stays attached; the person just types the amount.
+              console.error("receipt reader failed", error);
+              return null;
+            })
+          : Promise.resolve(null),
+      ]);
+      if (!reader) return { receiptPath, read: false, amount: null, currency: null, title: null, category: null, note: null };
       return { receiptPath, read: reading !== null, ...prefillFromReading(reading, ctx.trip.baseCurrency) };
     });
+  }
+
+  private async storeReceipt(tripId: TripId, image: ReceiptImage): Promise<string> {
+    let kept = image;
+    try {
+      if (this.deps.compressor) kept = await this.deps.compressor.forStorage(image);
+    } catch (error) {
+      console.error("receipt compression failed, storing as uploaded", error);
+    }
+    return this.deps.receipts.put(tripId, this.deps.ids.next(), kept);
   }
 
   /** One expense with its split method and full history (Gastos › detalle). */

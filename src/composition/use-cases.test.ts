@@ -142,6 +142,24 @@ describe("Use cases wired through the composition root", () => {
     expect(!foreign.ok && foreign.error.code).toBe("validation");
   });
 
+  it("reads the photo as uploaded but stores the compressed copy", async () => {
+    const seen: number[] = [];
+    const reader = { read: async (img: { bytes: Uint8Array }) => (seen.push(img.bytes.byteLength), null) };
+    const compressor = { forStorage: async () => ({ bytes: new Uint8Array([9]), mediaType: "image/webp" as const }) };
+    const c = createMemoryContainer({ ids: sequentialIds("id"), reader, compressor });
+    const tripId = await seedCartagena(c);
+    const scan = await c.ledger.scanReceipt(DEMO_PRINCIPAL, tripId, { bytes: new Uint8Array([1, 2, 3]), mediaType: "image/jpeg" });
+    if (!scan.ok) throw scan.error;
+    expect(seen).toEqual([3]);
+    expect(scan.value.receiptPath).toMatch(/\.webp$/);
+
+    // A failing compressor still keeps the photo, as uploaded.
+    const broken = createMemoryContainer({ ids: sequentialIds("id"), reader: null, compressor: { forStorage: async () => { throw new Error("boom"); } } });
+    const t2 = await seedCartagena(broken);
+    const kept = await broken.ledger.scanReceipt(DEMO_PRINCIPAL, t2, { bytes: new Uint8Array([1, 2, 3]), mediaType: "image/jpeg" });
+    expect(kept.ok && kept.value.receiptPath).toMatch(/\.jpg$/);
+  });
+
   it("still attaches the photo when the reader fails or isn't configured", async () => {
     const failing = { read: async () => { throw new Error("boom"); } };
     for (const reader of [failing, null]) {
